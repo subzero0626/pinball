@@ -1373,7 +1373,7 @@ class Game {
 window.addEventListener('DOMContentLoaded', () => {
   if (typeof Matter === 'undefined') {
     document.getElementById('message').textContent =
-      'Matter.js 를 불러오지 못했습니다. vendor/matter.min.js 파일이 있는지 확인하세요.';
+      'Matter.js 를 불러오지 못했습니다. matter.min.js 파일이 있는지 확인하세요.';
     return;
   }
   window.game = new Game(document.getElementById('board'));
