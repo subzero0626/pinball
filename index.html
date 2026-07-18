@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PINBALL</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#f3efe6',
+            ink: '#2a2622',
+            pencil: '#5c564e',
+            pen: '#2f5d8c',
+            eraser: '#c4b8a8',
+          },
+          fontFamily: {
+            sketch: ['"Gaegu"', '"Nanum Pen Script"', 'cursive'],
+            note: ['"IBM Plex Sans KR"', 'sans-serif'],
+          },
+          boxShadow: {
+            paper: '3px 4px 0 rgba(42, 38, 34, 0.12), 0 12px 28px rgba(42, 38, 34, 0.08)',
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="min-h-screen font-note text-ink antialiased">
+  <div class="desk-bg fixed inset-0 -z-10" aria-hidden="true"></div>
+
+  <!-- 좌측 상단: 라운드 / 드롭 / 점수 -->
+  <aside id="roundHud" class="round-hud" aria-label="라운드 정보">
+    <div class="round-hud-title">
+      <span class="round-hud-label">라운드</span>
+      <span id="hudRound" class="round-hud-num">1</span>
+    </div>
+    <div id="hudDrops" class="round-hud-drops" aria-label="드롭 진행">
+      <span class="drop-dot" data-drop="1"></span>
+      <span class="drop-dot" data-drop="2"></span>
+      <span class="drop-dot" data-drop="3"></span>
+    </div>
+    <div id="hudScore" class="round-hud-score">0/25</div>
+  </aside>
+
+  <div class="app mx-auto flex min-h-screen max-w-[1100px] flex-wrap items-center justify-center gap-6 px-4 py-8 md:gap-8">
+    <!-- ===================== 보드 ===================== -->
+    <main class="board-area flex w-full max-w-[560px] flex-col items-center">
+      <header class="mb-3 w-full text-center">
+        <p class="font-sketch text-lg text-pen/80">notebook prototype</p>
+        <h1 class="font-sketch text-4xl font-bold tracking-wide text-ink md:text-5xl">PINBALL</h1>
+        <div class="mx-auto mt-1 h-[2px] w-40 sketch-underline"></div>
+      </header>
+
+      <div class="sketch-frame relative w-full">
+        <div class="sketch-tape tape-left" aria-hidden="true"></div>
+        <div class="sketch-tape tape-right" aria-hidden="true"></div>
+        <canvas id="board" class="block w-full max-w-full cursor-crosshair"></canvas>
+      </div>
+
+      <p id="message" class="message mt-3 min-h-[1.5rem] max-w-[36rem] text-center font-sketch text-lg leading-snug text-pencil"></p>
+    </main>
+
+    <!-- ===================== 사이드 패널 ===================== -->
+    <aside class="panel flex w-full max-w-[300px] flex-col justify-center gap-5 self-center">
+      <section class="sketch-card">
+        <h2 class="sketch-heading">보유 막대</h2>
+        <p class="mb-2 font-sketch text-base text-pencil/80">페그로 드래그해서 설치 · Q / E 로 회전</p>
+        <div class="tools-with-recycle flex items-stretch gap-2">
+          <div class="tools flex min-w-0 flex-1 flex-col gap-2.5">
+          <button class="tool-btn active has-tip" data-tool="normal" type="button"
+            data-tip="공이 부딪히면 튕깁니다. 점수는 변하지 않습니다.">
+            <span class="swatch normal"></span>일반 막대
+            <span class="inv-count ml-auto font-sketch text-xl" data-inv="normal">0</span>
+          </button>
+          <button class="tool-btn has-tip" data-tool="score" type="button"
+            data-tip="공이 통과 시 점수 +3. 같은 막대는 공당 1회.">
+            <span class="swatch score"></span>점수 막대
+            <span class="inv-count ml-auto font-sketch text-xl" data-inv="score">0</span>
+          </button>
+          <button class="tool-btn has-tip" data-tool="multiply" type="button"
+            data-tip="공이 통과 시 점수 ×2. 같은 막대는 공당 1회.">
+            <span class="swatch multiply"></span>배수 막대
+            <span class="inv-count ml-auto font-sketch text-xl" data-inv="multiply">0</span>
+          </button>
+          <button class="tool-btn has-tip" data-tool="duplicate" type="button"
+            data-tip="공이 통과 시 같은 점수의 공이 1개 더 생깁니다. 같은 막대는 공당 1회.">
+            <span class="swatch duplicate"></span>복제 막대
+            <span class="inv-count ml-auto font-sketch text-xl" data-inv="duplicate">0</span>
+          </button>
+          <button class="tool-btn has-tip" data-tool="warp" type="button"
+            data-tip="공이 통과 시 지정한 위치로 이동합니다. ×를 클릭해 이동할 위치를 고르세요.">
+            <span class="swatch warp"></span>워프 막대
+            <span class="inv-count ml-auto font-sketch text-xl" data-inv="warp">0</span>
+          </button>
+          <button class="tool-btn danger has-tip" data-tool="delete" type="button"
+            data-tip="보드에서 드래그해 사각형을 만들면, 그 안의 막대가 모두 보관함으로 돌아갑니다.">
+            <span class="swatch delete"></span>삭제
+          </button>
+          </div>
+          <div id="recycleDrop" class="recycle-drop has-tip" hidden
+            data-tip="특수 막대를 여기로 드래그하면 다른 특수 막대로 바꿉니다. 라운드당 3회.">
+            <svg class="recycle-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor"
+                d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l1.46 1.46A7.9 7.9 0 0 0 20 12c0-2.21-.9-4.21-2.35-5.65zM6.35 17.65A7.95 7.95 0 0 0 12 20v3l5-5-5-5v3c-2.76 0-5-2.24-5-5 0-.65.13-1.26.36-1.83L5.9 7.71A7.9 7.9 0 0 0 4 12c0 2.21.9 4.21 2.35 5.65z"/>
+            </svg>
+            <span id="recycleUses" class="recycle-uses">3</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="sketch-card">
+        <h2 class="sketch-heading">진행</h2>
+        <button id="btnStart" class="action primary" type="button">게임 시작</button>
+        <p class="hint mt-2 font-sketch text-base text-pencil/80">Enter / Space</p>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 드래프트: 막대 1개 × 3선택지 / 추가 효과 -->
+  <div id="draftOverlay" class="draft-overlay" hidden>
+    <p id="draftPeekHint" class="draft-peek-hint font-sketch">빈 곳을 다시 클릭하면 선택 창이 열립니다</p>
+    <div class="draft-sheet sketch-card">
+      <h2 id="draftTitle" class="sketch-heading text-center !text-2xl">막대 고르기</h2>
+      <p id="draftSubtitle" class="mb-4 text-center font-sketch text-lg text-pencil">
+        서로 다른 3가지 · 일반은 ×2 · 하나를 고르세요
+      </p>
+      <p class="draft-peek-tip mb-3 text-center font-sketch text-base text-pencil/70">
+        빈 공간 클릭으로 보드를 잠깐 볼 수 있습니다
+      </p>
+      <div id="draftChoices" class="draft-choices"></div>
+    </div>
+  </div>
+
+  <!-- 라운드 실패 / 게임 오버 -->
+  <div id="failOverlay" class="draft-overlay fail-overlay" hidden>
+    <div class="draft-sheet sketch-card fail-sheet">
+      <p class="fail-eyebrow font-sketch text-center text-lg">게임 오버</p>
+      <h2 id="failTitle" class="sketch-heading text-center !text-3xl">라운드 실패</h2>
+      <p id="failSummary" class="fail-summary font-sketch text-center text-lg"></p>
+      <ul id="failStats" class="fail-stats font-sketch">
+        <li><span class="fail-stat-label">생성한 총 공 수</span><span id="failBalls" class="fail-stat-value">0</span></li>
+        <li><span class="fail-stat-label">총 점수</span><span id="failTotal" class="fail-stat-value">0</span></li>
+        <li><span class="fail-stat-label">최고 단일 공 점수</span><span id="failBest" class="fail-stat-value">0</span></li>
+      </ul>
+      <p id="failHint" class="mb-5 text-center font-sketch text-base">
+        처음부터 다시 시작합니다.
+      </p>
+      <button id="btnFailRetry" class="action primary fail-retry" type="button">처음부터</button>
+    </div>
+  </div>
+
+  <script src="vendor/matter.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/bars.js"></script>
+  <script src="js/balls.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="game.js"></script>
+  <script>
+    // 스케치 지터 — 매 로드마다 랜덤 (이전 대비 강도 80%)
+    (function sketchJitter() {
+      const J = 0.8;
+      const rand = (a, b) => a + Math.random() * (b - a);
+      const organicRadius = (softMin, softMax, firmMin, firmMax) => {
+        const soft = Math.round(rand(softMin * J, softMax * J));
+        const firm = Math.round(rand(firmMin * J, firmMax * J));
+        return `${firm}px ${soft}px ${firm - Math.round(rand(4 * J, 12 * J))}px ${soft + Math.round(rand(2 * J, 8 * J))}px / ${soft + Math.round(rand(0, 6 * J))}px ${firm}px ${soft}px ${firm - Math.round(rand(2 * J, 10 * J))}px`;
+      };
+
+      window.applySketchJitter = function applySketchJitter(root = document) {
+        // 글씨가 있는 요소는 기울이지 않음 (회전 시 브라우저가 글씨를 흐리게 그림)
+        // 스케치감은 모서리(border-radius) 랜덤으로만 표현
+        root.querySelectorAll('.round-hud').forEach((el) => {
+          el.style.removeProperty('--tilt');
+          el.style.setProperty('--hud-radius', organicRadius(10, 26, 22, 70));
+        });
+
+        root.querySelectorAll('.round-hud-score').forEach((el) => {
+          el.style.setProperty('--score-radius', organicRadius(8, 18, 16, 40));
+          // 연한 배경 — 살짝 다른 파스텔 톤
+          const washes = [
+            [47, 93, 140],   // pen blue
+            [90, 110, 95],   // sage
+            [140, 120, 90],  // warm gray
+            [100, 95, 120],  // soft slate
+            [80, 115, 110],  // teal-gray
+          ];
+          const [r, g, b] = washes[Math.floor(Math.random() * washes.length)];
+          const a = (0.10 + Math.random() * 0.08).toFixed(2);
+          const aMet = (0.14 + Math.random() * 0.08).toFixed(2);
+          el.style.setProperty('--score-wash', `rgba(${r}, ${g}, ${b}, ${a})`);
+          el.style.setProperty('--score-wash-met', `rgba(47, 107, 69, ${aMet})`);
+        });
+
+        root.querySelectorAll('.sketch-card').forEach((el) => {
+          el.style.removeProperty('--tilt');
+          el.style.setProperty('--card-radius', organicRadius(12, 34, 30, 95));
+        });
+
+        root.querySelectorAll('.tool-btn, .action, .draft-choice').forEach((el) => {
+          el.style.removeProperty('--btn-tilt');
+          el.style.setProperty('--btn-radius', organicRadius(10, 28, 20, 70));
+        });
+
+        root.querySelectorAll('.phase-badge').forEach((el) => {
+          el.style.removeProperty('--tilt');
+          const spreadA = 15 * J;
+          const spreadC = 10 * J;
+          const a = Math.round(rand(50 - spreadA, 50 + spreadA));
+          const b = 100 - a;
+          const c = Math.round(rand(50 - spreadC, 50 + spreadC));
+          const d = 100 - c;
+          el.style.setProperty('--badge-radius', `${a}% ${b}% ${c}% ${d}% / ${d}% ${a}% ${b}% ${c}%`);
+        });
+
+        root.querySelectorAll('.draft-bar').forEach((el) => {
+          el.style.borderRadius = organicRadius(8, 20, 16, 48);
+          el.style.transform = 'none';
+        });
+      };
+
+      document.documentElement.style.setProperty('--frame-tilt', '0deg');
+      document.documentElement.style.setProperty('--tape-l', rand(-12 * J, -4 * J).toFixed(1) + 'deg');
+      document.documentElement.style.setProperty('--tape-r', rand(3 * J, 11 * J).toFixed(1) + 'deg');
+
+      window.applySketchJitter(document);
+    })();
+  </script>
+</body>
+</html>
