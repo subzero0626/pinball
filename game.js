@@ -28,11 +28,16 @@ class Game {
     this.dropIndex = 1;                     // 1 .. dropsPerRound
     this.selectedTool = 'normal';
     this.selectedBar = null;
+    this.selectedSpring = null;
+    this.springs = [];                      // 유물 스프링 { id, x, y, angleDeg, body }
+    this.nextSpringId = 1;
+    this.pendingSpringBoosts = [];
     this.hoverPeg = null;
     this.launchX = this.board.launchSlotXs()[Math.floor(CONFIG.cols / 2)];
     this.effects = [];
     this.pendingEffects = [];               // 충돌 이벤트에서 큐에 넣고 업데이트 후 처리
     this.pendingDeflects = [];              // 직각 충돌 시 ±20° 편향
+    this.pendingFlatRolls = [];             // 0° 일반 막대 안착 시 이전 방향으로 굴림
     this.pendingPegJitters = [];            // 페그 충돌 시 2~3° 경로 지터
     this.usedDeflectKeys = new Set();       // 페그/막대당 1회 (키: 'peg:id' | 'bar:id')
     this.dragging = null;
@@ -41,7 +46,7 @@ class Game {
     this.deleteMarquee = null;              // { x0, y0, x1, y1 } 삭제 드래그 영역
     this.inventory = this.startingInventory();
     this.draftOffers = [];                  // 막대: [{type,count}, ...] / 효과: [{id,label,desc}, ...]
-    this.ownedEffects = [];                 // 라운드 클리어로 고른 추가 효과
+    this.ownedEffects = [];                 // 라운드 클리어로 고른 유물
     this.sinkBonusZone = null;              // { x0, x1, mult } | null
     this.recycleUsesLeft = 0;               // 재사용 남은 횟수 (라운드당)
 
@@ -207,7 +212,7 @@ class Game {
     this.draftOffers = pool.slice(0, CONFIG.draftOfferCount);
   }
 
-  /** 추가 효과 선택지 — 미보유 중 서로 다른 3개 */
+  /** 유물 선택지 — 미보유 중 서로 다른 3개 */
   generateEffectDraftOffers() {
     const pool = this.remainingEffects().slice();
     for (let i = pool.length - 1; i > 0; i--) {
@@ -220,6 +225,7 @@ class Game {
   openBarDraft(message) {
     this.phase = 'draft';
     this.selectedBar = null;
+    this.selectedSpring = null;
     this.dragging = null;
     this.generateBarDraftOffers();
     this.ui.showBarDraft(this.draftOffers);
@@ -229,14 +235,15 @@ class Game {
   openEffectDraft(message) {
     this.generateEffectDraftOffers();
     if (this.draftOffers.length === 0) {
-      this.advanceAfterRoundClear('모든 추가 효과를 모았습니다. 다음 라운드를 준비하세요.');
+      this.advanceAfterRoundClear('모든 유물을 모았습니다. 다음 라운드를 준비하세요.');
       return;
     }
     this.phase = 'effect';
     this.selectedBar = null;
+    this.selectedSpring = null;
     this.dragging = null;
     this.ui.showEffectDraft(this.draftOffers);
-    this.ui.setMessage(message || '라운드 클리어! 추가 효과를 고르세요.');
+    this.ui.setMessage(message || '라운드 클리어! 유물을 고르세요.');
   }
 
   pickBarDraft(index) {
@@ -260,17 +267,133 @@ class Game {
     this.draftOffers = [];
     this.ui.hideDraft();
 
-    if (effect.id === 'long_special') {
-      this.bars.refreshBodies();
+    if (effect.id === 'map_spring') {
+      this.spawnMapSpring();
     }
     if (effect.id === 'sink_bonus') {
       this.rollSinkBonusZone();
     }
+    this.ui.renderRelicTray();
 
     this.advanceAfterRoundClear(
       () =>
         `「${effect.label}」획득. 라운드 ${this.roundNumber} — 목표 ${this.getTargetScore()}점. 드롭 1/${CONFIG.dropsPerRound}을 준비하세요.`
     );
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  맵 스프링 (유물)
+   * ------------------------------------------------------------------ */
+  clearSprings() {
+    for (const s of this.springs) {
+      if (s.body) Matter.Composite.remove(this.world, s.body);
+    }
+    this.springs = [];
+    this.selectedSpring = null;
+    this.pendingSpringBoosts = [];
+  }
+
+  /** 가운데 쪽으로 치우친 랜덤 좌표 (설명에는 안 씀) */
+  pickSpringSpawnPos() {
+    const half = CONFIG.barLength / 2;
+    const margin = CONFIG.wallThickness + half + 8;
+    const y0 = CONFIG.launchZoneHeight + half + 10;
+    const y1 = CONFIG.sinkY - half - 20;
+    const cx = CONFIG.boardWidth / 2;
+    const cy = (y0 + y1) / 2;
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const ux = (Math.random() + Math.random() + Math.random() + Math.random()) / 4;
+      const uy = (Math.random() + Math.random() + Math.random() + Math.random()) / 4;
+      const x = margin + ux * (CONFIG.boardWidth - margin * 2);
+      const y = y0 + uy * (y1 - y0);
+
+      const dist = Math.hypot(x - cx, y - cy);
+      const maxDist = Math.hypot(CONFIG.boardWidth / 2, (y1 - y0) / 2);
+      const centerWeight = 1 - dist / maxDist;
+      if (Math.random() > 0.35 + centerWeight * 0.65) continue;
+
+      if (this.isSpringPosClear(x, y, half + 6)) return { x, y };
+    }
+    return { x: cx, y: cy };
+  }
+
+  isSpringPosClear(x, y, need) {
+    for (const peg of this.board.pegs) {
+      if (!peg.body) continue;
+      if (Math.hypot(peg.x - x, peg.y - y) < need + CONFIG.pegRadius) return false;
+    }
+    for (const bar of this.bars.bars) {
+      const [a, b] = barEndpoints(bar.x, bar.y, bar.angleDeg, this.bars.lengthOf(bar));
+      if (Geom.pointSegDist(x, y, a.x, a.y, b.x, b.y) < need + CONFIG.barThickness / 2) {
+        return false;
+      }
+    }
+    for (const s of this.springs) {
+      if (Math.hypot(s.x - x, s.y - y) < need * 2) return false;
+    }
+    return true;
+  }
+
+  spawnMapSpring() {
+    const pos = this.pickSpringSpawnPos();
+    const spring = {
+      id: this.nextSpringId++,
+      x: pos.x,
+      y: pos.y,
+      angleDeg: 270, // 기본: 위쪽 (y↓ 좌표)
+      body: null,
+    };
+    spring.body = this.makeSpringBody(spring);
+    Matter.Composite.add(this.world, spring.body);
+    this.springs.push(spring);
+    this.selectedSpring = spring;
+    this.selectedBar = null;
+    this.ui.setMessage('도약 태엽 — 스프링이 맵에 생겼습니다. Q/E로 방향을 바꾸세요.');
+    return spring;
+  }
+
+  makeSpringBody(spring) {
+    const L = CONFIG.barLength;
+    const T = CONFIG.barThickness;
+    // 막대 장축은 발사 방향에 수직
+    const barAngle = ((spring.angleDeg + 90) * Math.PI) / 180;
+    const body = Matter.Bodies.rectangle(spring.x, spring.y, L, T, {
+      isStatic: true,
+      isSensor: true,
+      angle: barAngle,
+      label: 'spring',
+    });
+    body.gameSpring = spring;
+    return body;
+  }
+
+  springAt(x, y) {
+    const reach = CONFIG.barThickness / 2 + 7;
+    const L = CONFIG.barLength;
+    let best = null;
+    let bestD = Infinity;
+    for (const s of this.springs) {
+      const barAngle = s.angleDeg + 90;
+      const [a, b] = barEndpoints(s.x, s.y, barAngle, L);
+      const d = Geom.pointSegDist(x, y, a.x, a.y, b.x, b.y);
+      if (d < reach && d < bestD) {
+        best = s;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  rotateSpring(spring, deltaDeg) {
+    if (!spring) return;
+    const step = CONFIG.effectBalance.springAngleStep || CONFIG.angleStep;
+    let snapped = Math.round((spring.angleDeg + deltaDeg) / step) * step;
+    snapped = ((snapped % 360) + 360) % 360;
+    spring.angleDeg = snapped;
+    if (spring.body) {
+      Matter.Body.setAngle(spring.body, ((spring.angleDeg + 90) * Math.PI) / 180);
+    }
   }
 
   enterEditAfterDraft(gainedType, count = 1) {
@@ -311,6 +434,20 @@ class Game {
         const other = ballBody === pair.bodyA ? pair.bodyB : pair.bodyA;
         const ball = ballBody.gameBall;
         const bar = other.gameBar || null;
+        const spring = other.gameSpring || null;
+
+        // 맵 스프링 — 공당 1회, 입사 속력 × springBounceMult 로 발사
+        if (spring) {
+          if (ball.hasSprung) continue;
+          this.pendingSpringBoosts.push({
+            ballId: ball.id,
+            springId: spring.id,
+            preVx: ballBody.velocity.x,
+            preVy: ballBody.velocity.y,
+            angleDeg: spring.angleDeg,
+          });
+          continue;
+        }
 
         // 특수 막대 — 관통하며 효과만 발동
         if (bar && BAR_TYPES[bar.type].sensor) {
@@ -343,18 +480,27 @@ class Game {
         // collisionStart 는 속도 해석 전에 오므로, 이때의 velocity 가 입사 속도다.
         if (bar || other.gamePeg) {
           const obstacleKey = bar ? `bar:${bar.id}` : `peg:${other.gamePeg.id}`;
-          if (this.usedDeflectKeys.has(obstacleKey)) continue;
+          if (!this.usedDeflectKeys.has(obstacleKey)) {
+            this.pendingDeflects.push({
+              ballId: ball.id,
+              obstacleKey,
+              otherX: other.position.x,
+              otherY: other.position.y,
+              isPeg: !!other.gamePeg,
+              barAngleDeg: bar ? this.bars.physicsAngleDeg(bar) : 0,
+              preVx: ballBody.velocity.x,
+              preVy: ballBody.velocity.y,
+            });
+          }
+        }
 
-          this.pendingDeflects.push({
-            ballId: ball.id,
-            obstacleKey,
-            otherX: other.position.x,
-            otherY: other.position.y,
-            isPeg: !!other.gamePeg,
-            barAngleDeg: bar ? this.bars.physicsAngleDeg(bar) : 0,
-            preVx: ballBody.velocity.x,
-            preVy: ballBody.velocity.y,
-          });
+        // 0° 일반 막대에 안착하면 이전 가로 힘 방향으로 굴림
+        if (bar && bar.type === 'normal' && bar.angleDeg === 0) {
+          const preferX =
+            Math.abs(ballBody.velocity.x) > CONFIG.lastDirMinSpeed
+              ? ballBody.velocity.x
+              : (ball.lastDirX || 0);
+          this.pendingFlatRolls.push({ ballId: ball.id, preferX });
         }
       }
     });
@@ -438,6 +584,7 @@ class Game {
   /**
    * 페그/일반 막대에 거의 직각으로 부딪힌 경우만,
    * 튕김 방향을 법선 기준 좌우 ±deflectAngleDeg 로 강제한다.
+   * 일반 막대: 입사·이전 가로 힘 방향. 페그: 좌우 랜덤.
    * 같은 페그/막대는 라운드당 1회만.
    */
   processPendingDeflects() {
@@ -469,10 +616,29 @@ class Game {
       const outSpeed = Math.max(Math.hypot(cur.x, cur.y), preSpeed * CONFIG.restitution * 0.85);
       if (outSpeed < CONFIG.deflectMinSpeed) continue;
 
-      // 법선에서 접선 쪽으로 ±20° (왼쪽/오른쪽 랜덤)
-      const sign = Math.random() < 0.5 ? -1 : 1;
       const tx = -n.y;
       const ty = n.x;
+      let sign;
+      if (item.isPeg) {
+        sign = Math.random() < 0.5 ? -1 : 1;
+      } else {
+        let along = item.preVx * tx + item.preVy * ty;
+        if (Math.abs(along) < CONFIG.lastDirMinSpeed) {
+          const preferX =
+            Math.abs(item.preVx) >= CONFIG.lastDirMinSpeed
+              ? item.preVx
+              : (ball.lastDirX || 0);
+          along = preferX * tx;
+        }
+        sign = along >= 0 ? 1 : -1;
+        if (Math.abs(along) < 1e-9) sign = 1;
+        const worldDX = sign * tx;
+        if (Math.abs(worldDX) > 0.01) ball.lastDirX = Math.sign(worldDX);
+        else if (Math.abs(item.preVx) >= CONFIG.lastDirMinSpeed) {
+          ball.lastDirX = Math.sign(item.preVx);
+        }
+      }
+
       const c = Math.cos(deflectRad);
       const s = Math.sin(deflectRad);
       const dx = n.x * c + sign * tx * s;
@@ -485,6 +651,36 @@ class Game {
 
       this.usedDeflectKeys.add(item.obstacleKey);
       seenBall.add(item.ballId);
+    }
+  }
+
+  /** 0° 일자 일반 막대에 거의 멈춘 공을 이전 힘 방향으로 굴린다 */
+  processPendingFlatRolls() {
+    if (this.pendingFlatRolls.length === 0) return;
+    const queue = this.pendingFlatRolls;
+    this.pendingFlatRolls = [];
+    const seen = new Set();
+
+    for (const item of queue) {
+      if (seen.has(item.ballId)) continue;
+      seen.add(item.ballId);
+      const ball = this.balls.balls.find((x) => x.id === item.ballId);
+      if (!ball || !ball.body) continue;
+
+      const v = ball.body.velocity;
+      const dir =
+        Math.sign(item.preferX) ||
+        Math.sign(ball.lastDirX) ||
+        1;
+      ball.lastDirX = dir;
+
+      // 가로로 거의 멈춘 안착만 — 이미 빠르게 튕기는 경우는 건드리지 않음
+      if (Math.abs(v.x) >= CONFIG.flatRollMinSpeed) continue;
+
+      Matter.Body.setVelocity(ball.body, {
+        x: dir * CONFIG.flatRollMinSpeed,
+        y: v.y,
+      });
     }
   }
 
@@ -534,11 +730,8 @@ class Game {
       const bar = this.bars.barById(item.barId);
       if (!ball || !bar) continue;
 
-      // 워프 제외 특수 막대: 공당 1회, 워프한 공은 1회 더(최대 2회)
-      if (bar.type !== 'warp') {
-        if (!this.balls.canUseSensor(ball, bar.id)) continue;
-        this.balls.markSensorUse(ball, bar.id);
-      }
+      // 워프 제외 특수 막대: 빠져나갔다 다시 들어오면 무제한 발동
+      // (겹쳐 있는 동안은 activeSensors로 1회만)
 
       switch (bar.type) {
         case 'score':
@@ -626,6 +819,7 @@ class Game {
     this.dropScore = 0;
     this.usedDeflectKeys.clear();
     this.pendingDeflects = [];
+    this.pendingFlatRolls = [];
     this.pendingPegJitters = [];
     this.snapLaunchToSlot();
 
@@ -651,7 +845,7 @@ class Game {
     if (lastDrop) {
       if (this.roundScore >= target) {
         this.openEffectDraft(
-          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! 추가 효과를 고르세요.`
+          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! 유물을 고르세요.`
         );
       } else {
         const failedSum = this.roundScore;
@@ -732,7 +926,10 @@ class Game {
     this.sinkBonusZone = null;
     this.recycleUsesLeft = 0;
     this.selectedBar = null;
+    this.selectedSpring = null;
+    this.clearSprings();
     this.selectedTool = 'normal';
+    this.ui.renderRelicTray();
     this.launchX = this.board.launchSlotXs()[Math.floor(CONFIG.cols / 2)];
     this.effects = [];
     this.pendingEffects = [];
@@ -940,16 +1137,66 @@ class Game {
     return hit.length;
   }
 
+  /** 스프링 부스트 — 입사 속력 × springBounceMult, 유저 설정 방향 */
+  processPendingSpringBoosts() {
+    if (this.pendingSpringBoosts.length === 0) return;
+    const queue = this.pendingSpringBoosts;
+    this.pendingSpringBoosts = [];
+    const seen = new Set();
+    const mult = CONFIG.effectBalance.springBounceMult || 4;
+    const cap = CONFIG.effectBalance.springMaxSpeed || 18;
+
+    for (const item of queue) {
+      const key = `${item.ballId}:${item.springId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ball = this.balls.balls.find((b) => b.id === item.ballId);
+      if (!ball || !ball.body || ball.hasSprung) continue;
+
+      const preSpeed = Math.hypot(item.preVx, item.preVy);
+      if (preSpeed < CONFIG.deflectMinSpeed) continue;
+
+      const rad = (item.angleDeg * Math.PI) / 180;
+      const outSpeed = Math.min(preSpeed * mult, cap);
+      Matter.Body.setVelocity(ball.body, {
+        x: Math.cos(rad) * outSpeed,
+        y: Math.sin(rad) * outSpeed,
+      });
+      ball.hasSprung = true;
+      ball.springBoostUntil = performance.now() + 450;
+      this.addRing(
+        ball.body.position.x,
+        ball.body.position.y,
+        '#c45c2a'
+      );
+    }
+  }
+
   rotateSelected(delta) {
-    if (this.phase !== 'edit' || !this.selectedBar) return;
+    if (this.phase !== 'edit') return;
+    if (this.selectedSpring) {
+      this.rotateSpring(this.selectedSpring, delta);
+      this.ui.setMessage(`스프링 방향 ${this.selectedSpring.angleDeg}° — Q/E·휠로 회전`);
+      return;
+    }
+    if (!this.selectedBar) return;
     const ok = this.bars.rotateBar(this.selectedBar, delta);
     if (!ok) {
       this.ui.setMessage('그 각도로는 설치할 수 없습니다 (겹침 또는 보드 밖). 이전 각도로 되돌렸습니다.');
     }
   }
 
-  handleClick(x, y) {
+    handleClick(x, y) {
     if (this.phase !== 'edit') return;
+
+    // 0) 스프링 선택
+    const spring = this.springAt(x, y);
+    if (spring) {
+      this.selectedSpring = spring;
+      this.selectedBar = null;
+      this.ui.setMessage(`스프링 선택 (${spring.angleDeg}°) — Q/E·휠로 방향 회전`);
+      return;
+    }
 
     // 1) 워프 도착 지점 지정 — 선택된 워프 막대, 또는 도착 미지정 워프
     const warpTarget =
@@ -991,6 +1238,7 @@ class Game {
     const bar = this.bars.barAt(x, y);
     if (bar) {
       this.selectedBar = bar;
+      this.selectedSpring = null;
       this.selectedTool = bar.type;
       this.ui.setMessage(
         `${BAR_TYPES[bar.type].label} 선택 — Q/E·휠로 회전, 드래그로 이동. 삭제는 삭제 도구를 쓰세요.`
@@ -1000,6 +1248,7 @@ class Game {
 
     // 3) 빈 공간/페그 클릭 — 설치는 드래그만, 선택·흐린 × 해제
     this.selectedBar = null;
+    this.selectedSpring = null;
     const peg = this.board.pegAt(x, y);
     if (peg) {
       this.ui.setMessage('막대는 보유 칸에서 페그로 드래그해야 설치됩니다.');
@@ -1252,7 +1501,7 @@ class Game {
     });
 
     canvas.addEventListener('wheel', (evt) => {
-      if (this.phase !== 'edit' || !this.selectedBar) return;
+      if (this.phase !== 'edit' || (!this.selectedBar && !this.selectedSpring)) return;
       evt.preventDefault();
       this.rotateSelected(evt.deltaY > 0 ? CONFIG.angleStep : -CONFIG.angleStep);
     }, { passive: false });
@@ -1302,7 +1551,10 @@ class Game {
 
       if (k === 'q') this.rotateSelected(-CONFIG.angleStep);
       else if (k === 'e') this.rotateSelected(CONFIG.angleStep);
-      else if (k === 'escape') this.selectedBar = null;
+      else if (k === 'escape') {
+        this.selectedBar = null;
+        this.selectedSpring = null;
+      }
       else if ((k === 'delete' || k === 'backspace') && this.selectedBar) {
         evt.preventDefault();
         const removedType = this.selectedBar.type;
@@ -1330,6 +1582,52 @@ class Game {
     this.effects = this.effects.filter((fx) => fx.life > 0);
   }
 
+  /** 공 정지 감시 — 5초 이상이면 이번 드롭 0점 */
+  checkStuckBalls() {
+    if (this.phase !== 'run') return;
+    const now = performance.now();
+    const maxSp = CONFIG.stuckSpeedMax ?? 0.08;
+    const warnMs = CONFIG.stuckWarnMs ?? 2500;
+    const failMs = CONFIG.stuckFailMs ?? 5000;
+
+    for (const ball of this.balls.balls) {
+      if (!ball.body) continue;
+      const v = ball.body.velocity;
+      const speed = Math.hypot(v.x, v.y);
+      if (speed <= maxSp) {
+        if (!ball.stuckSince) {
+          ball.stuckSince = now;
+          ball.stuckWarned = false;
+        } else {
+          const elapsed = now - ball.stuckSince;
+          if (!ball.stuckWarned && elapsed >= warnMs) {
+            ball.stuckWarned = true;
+            this.ui.setMessage('공이 멈춤 — 계속 가두면 이번 드롭은 0점입니다!');
+          }
+          if (elapsed >= failMs) {
+            this.failDropByStuck();
+            return;
+          }
+        }
+      } else {
+        ball.stuckSince = 0;
+        ball.stuckWarned = false;
+      }
+    }
+  }
+
+  failDropByStuck() {
+    this.dropScore = 0;
+    this.balls.removeAll();
+    this.pendingEffects = [];
+    this.pendingDeflects = [];
+    this.pendingFlatRolls = [];
+    this.pendingPegJitters = [];
+    this.pendingSpringBoosts = [];
+    this.ui.setMessage('공이 5초 이상 멈춰 이번 드롭은 0점입니다.');
+    this.endDrop();
+  }
+
   /* ------------------------------------------------------------------ *
    *  메인 루프
    * ------------------------------------------------------------------ */
@@ -1339,26 +1637,35 @@ class Game {
       for (const ball of this.balls.balls) {
         ball.preVx = ball.body.velocity.x;
         ball.preVy = ball.body.velocity.y;
+        if (Math.abs(ball.preVx) >= CONFIG.lastDirMinSpeed) {
+          ball.lastDirX = Math.sign(ball.preVx);
+        }
       }
 
       Matter.Engine.update(this.engine, 1000 / 60);
       this.processPendingEffects();
       this.processPendingDeflects();
+      this.processPendingFlatRolls();
       this.processPendingPegJitters();
+      this.processPendingSpringBoosts();
       this.balls.clampSpeeds();
-
-      // 종료 구역 도착 판정
-      for (const ball of [...this.balls.balls]) {
-        const p = ball.body.position;
-        if (p.y > CONFIG.sinkY) {
-          this.sinkBall(ball);
-        } else if (p.y > CONFIG.boardHeight + 200 || p.x < -100 || p.x > CONFIG.boardWidth + 100) {
-          this.balls.removeBall(ball);   // 안전장치: 보드를 완전히 이탈한 공
+      this.checkStuckBalls();
+      if (this.phase !== 'run') {
+        // 정지 실패로 드롭이 이미 종료됨
+      } else {
+        // 종료 구역 도착 판정
+        for (const ball of [...this.balls.balls]) {
+          const p = ball.body.position;
+          if (p.y > CONFIG.sinkY) {
+            this.sinkBall(ball);
+          } else if (p.y > CONFIG.boardHeight + 200 || p.x < -100 || p.x > CONFIG.boardWidth + 100) {
+            this.balls.removeBall(ball);
+          }
         }
-      }
 
-      if (this.balls.balls.length === 0) {
-        this.endDrop();
+        if (this.balls.balls.length === 0) {
+          this.endDrop();
+        }
       }
     }
 
@@ -1372,8 +1679,7 @@ class Game {
 
 window.addEventListener('DOMContentLoaded', () => {
   if (typeof Matter === 'undefined') {
-    document.getElementById('message').textContent =
-      'Matter.js 를 불러오지 못했습니다. matter.min.js 파일이 있는지 확인하세요.';
+    console.error('Matter.js 를 불러오지 못했습니다. matter.min.js 파일이 있는지 확인하세요.');
     return;
   }
   window.game = new Game(document.getElementById('board'));

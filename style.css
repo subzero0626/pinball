@@ -39,6 +39,84 @@ body {
   pointer-events: none;
   transform: none;
 }
+
+/* 우측 상단 유물 트레이 */
+.relic-tray {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: min(280px, 42vw);
+  pointer-events: auto;
+}
+.relic-slot {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2a2622;
+  background: #f6f1e7;
+  border: 2px solid #2a2622;
+  border-radius: 14px 10px 16px 12px / 12px 16px 10px 14px;
+  box-shadow: 2px 2px 0 rgba(42, 38, 34, 0.12);
+  cursor: default;
+}
+.relic-icon-svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.draft-relic-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.draft-relic-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.relic-tip {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: max(180px, 14rem);
+  padding: 8px 10px;
+  font-family: 'Gaegu', cursive;
+  font-size: 1.05rem;
+  line-height: 1.35;
+  color: #2a2622;
+  text-align: left;
+  background: #f6f1e7;
+  border: 2px solid #2a2622;
+  border-radius: 16px 12px 18px 14px / 14px 18px 12px 16px;
+  box-shadow: 3px 3px 0 rgba(42, 38, 34, 0.12);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 40;
+  transition: opacity 0.12s;
+}
+.relic-tip strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 1.15rem;
+}
+.relic-tip span {
+  display: block;
+  color: #5c564e;
+}
+.relic-slot:hover .relic-tip,
+.relic-slot:focus-visible .relic-tip {
+  opacity: 1;
+}
+
 .round-hud-title {
   display: flex;
   align-items: baseline;

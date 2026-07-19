@@ -26,8 +26,10 @@ class UI {
       hudScore: document.getElementById('hudScore'),
       recycleDrop: document.getElementById('recycleDrop'),
       recycleUses: document.getElementById('recycleUses'),
+      relicTray: document.getElementById('relicTray'),
     };
     this.invGhost = null;
+    this._relicTraySig = '';
 
     this.bindEvents();
   }
@@ -130,6 +132,7 @@ class UI {
   }
 
   setMessage(text) {
+    if (!this.el.message) return;
     this.el.message.textContent = text || '';
   }
 
@@ -143,8 +146,8 @@ class UI {
 
   showEffectDraft(offers) {
     this.clearDraftPeek();
-    this.el.draftTitle.textContent = '추가 효과 고르기';
-    this.el.draftSubtitle.textContent = '라운드 클리어 보상 · 서로 다른 효과 중 하나';
+    this.el.draftTitle.textContent = '유물 고르기';
+    this.el.draftSubtitle.textContent = '라운드 클리어 보상 · 서로 다른 유물 중 하나';
     this._renderDraftChoices(offers, (index) => this.game.pickEffectDraft(index), true);
     this.el.draftOverlay.hidden = false;
   }
@@ -159,8 +162,14 @@ class UI {
       btn.className = 'draft-choice';
 
       if (isEffect) {
+        const icon = typeof relicIconSvg === 'function'
+          ? relicIconSvg(item.icon, 'relic-icon-svg draft-relic-icon')
+          : '';
         btn.innerHTML = `
-          <span class="draft-choice-label draft-effect-name">${item.label}</span>
+          <span class="draft-relic-head">
+            ${icon}
+            <span class="draft-choice-label draft-effect-name">${item.label}</span>
+          </span>
           <span class="draft-effect-desc">${item.desc || ''}</span>
         `;
       } else {
@@ -183,6 +192,34 @@ class UI {
 
     if (typeof window.applySketchJitter === 'function') {
       window.applySketchJitter(this.el.draftOverlay);
+    }
+  }
+
+  renderRelicTray() {
+    const tray = this.el.relicTray;
+    if (!tray) return;
+    const g = this.game;
+    const sig = g.ownedEffects.join(',');
+    if (sig === this._relicTraySig && tray.childNodes.length === g.ownedEffects.length) {
+      return;
+    }
+    this._relicTraySig = sig;
+    tray.innerHTML = '';
+
+    for (const id of g.ownedEffects) {
+      const def = EFFECT_TYPES.find((e) => e.id === id);
+      if (!def) continue;
+      const wrap = document.createElement('div');
+      wrap.className = 'relic-slot has-tip';
+      wrap.setAttribute('data-tip', `${def.label} — ${def.desc}`);
+      wrap.innerHTML = typeof relicIconSvg === 'function'
+        ? relicIconSvg(def.icon, 'relic-icon-svg')
+        : '';
+      const tip = document.createElement('span');
+      tip.className = 'relic-tip';
+      tip.innerHTML = `<strong>${def.label}</strong><span>${def.desc}</span>`;
+      wrap.appendChild(tip);
+      tray.appendChild(wrap);
     }
   }
 
@@ -259,5 +296,7 @@ class UI {
         this.el.recycleUses.textContent = String(g.recycleUsesLeft);
       }
     }
+
+    this.renderRelicTray();
   }
 }

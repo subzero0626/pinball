@@ -32,11 +32,13 @@ const CONFIG = {
   maxBallSpeed: 8,      // 튕김 여유를 두되 화면 밖으로 날아가지 않을 정도
   warpExitSpeed: 2,     // 워프 직후 아래 방향 속도
 
-  /* 페그/일반 막대에 "거의 직각"으로 부딪힐 때만 좌우 ±20° 랜덤 편향.
-   * 같은 페그/막대에서는 라운드당 1회만 적용. */
+  /* 페그/일반 막대에 "거의 직각"으로 부딪힐 때만 좌우 ±20° 편향.
+   * 일반 막대는 입사·이전 가로 힘 방향으로 치우치고, 페그만 좌우 랜덤. */
   deflectAngleDeg: 20,       // 편향 각도
   deflectMaxOffDeg: 20,      // 법선에서 이 각도 이내면 "직각"으로 본다
   deflectMinSpeed: 0.1,      // 이보다 느리면 편향하지 않음
+  flatRollMinSpeed: 0.55,    // 0° 일반 막대 안착 시 굴림 최소 속력
+  lastDirMinSpeed: 0.12,     // 이 이상 가로 속력이면 진행 방향 기억
   /* 페그에 맞을 때마다 속도 방향을 살짝 틀어 동일 경로 반복을 줄임 */
   pegPathJitterMinDeg: 2,
   pegPathJitterMaxDeg: 3,
@@ -46,33 +48,29 @@ const CONFIG = {
   passNudgeMaxDeg: 11,
 
   /* --- 막대 --- */
-  /* barLength 는 "어떤 각도 조합으로 놓아도 공이 갇히지 않는" 길이여야 한다.
-   * 최악은 같은 행 인접 페그에 0°/0° 로 놓은 경우. 통과폭 = 74 - barLength - 8.
-   *
-   *   ~44 : 통과폭 >= 22 → 공(지름 20)이 두 막대 사이를 그대로 통과
-   *   ~54 : 통과폭 < 20 이라 통과는 못 함
-   *   56~ : 가로 막대로 한 행을 채우면 공이 갇힌다 (전수 검사로 확인)
-   *
-   * 50 은 56 대비 여유를 둔 값이다. */
-  barLength: 50,
+  /* 통과폭 = colSpacing - barLength - thickness ≈ 74-54-8 = 12 (< 공 지름 20)
+   * → 인접 0° 사이로 잘 안 빠짐. 가둠은 5초 정지 룰로 처리. */
+  barLength: 54,
   barThickness: 8,
-  angleStep: 15,        // 회전 단위(도)
-  barClearance: 2,      // 겹침 판정 여유
-  /* 0° 일반 막대만 — 사용자가 거의 못 보는 ±범위로 살짝 기울여 완전 수평 튕김을 피함 */
-  normalFlatJitterDeg: 0.5,
+  angleStep: 15,
+  barClearance: 2,
 
-  /* 워프 도착 — 막대 페그 행 기준 위·아래 최대 칸 수 */
+  /* 공 정지 → 드롭 0점 */
+  stuckSpeedMax: 0.08,
+  stuckWarnMs: 2500,
+  stuckFailMs: 5000,
+
+  /* 워프 도착 — 위·아래 최대 칸 */
   warpMaxRowRange: 3,
 
-  /* --- 발사 / 종료 구역 --- */
-  launchY: 60,          // 공이 생성되는 y
-  launchSpeed: 1.2,     // 발사 순간의 아래 방향 속도 (천천히 출발해 서서히 가속)
-  launchZoneHeight: 130,// 이 y 위쪽을 드래그하면 발사 위치 지정
-  sinkY: 766,           // 이 y를 넘으면 공이 보드를 빠져나간 것으로 처리
+  /* --- 발사 / 종료 --- */
+  launchY: 60,
+  launchSpeed: 1.2,
+  launchZoneHeight: 130,
+  sinkY: 766,
   ballsPerRound: 1,
 
-  /* --- 로그라이크 드래프트 ---
-   * 서로 다른 3선택지. 일반만 ×2, 나머지는 1개. */
+  /* --- 드래프트 --- */
   draftOfferCount: 3,
   draftBarPool: [
     { type: 'normal', count: 2 },
@@ -81,32 +79,34 @@ const CONFIG = {
     { type: 'duplicate', count: 1 },
     { type: 'warp', count: 1 },
   ],
-  startingNormalBars: 3,  // 게임 시작 시 기본으로 주는 일반 막대 수
+  startingNormalBars: 3,
 
-  /* --- 라운드 / 드롭 ---
-   * 한 라운드 = 드롭 4회. 4회 점수 합 ≥ 목표면 다음 라운드. */
+  /* --- 라운드 / 드롭 --- */
   dropsPerRound: 3,
   roundTargets: [15, 80, 242, 660, 1760, 4500, 13000, 35000, 95000, 250000],
 
-  /* --- 추가 효과 밸런스 (소수 1자리까지) --- */
+  /* --- 유물 / 특수 밸런스 --- */
   effectBalance: {
-    multiplyFactor: 2.3,          // 1: 배수 막대 (기본 2)
-    passNudgeMinDeg: 3,           // 2: 통과 꺾기 완화
+    multiplyFactor: 2.3,
+    passNudgeMinDeg: 3,
     passNudgeMaxDeg: 5,
-    duplicateTripleChance: 0.2,   // 3: 복제 → 3개 확률
-    specialLengthMult: 1.07,      // 4: 특수 막대 길이
-    pegScoreMult: 1.1,            // 5: 페그 튕김 배수
-    warpScoreMult: 1.5,           // 6: 워프 통과 배수
-    scoreBarBase: 3,              // 7: 점수 막대 기본 / 증강 시작값
-    scoreBarEscalate: 1.5,        // 7: 점수 증강 시 통과마다 가산 ×
-    sinkBonusWidthFrac: 0.4,      // 8: 종료 보너스 구간 너비 비율
-    sinkBonusMult: 1.5,           // 8: 보너스 구간 배수
-    targetCutFrac: 0.15,          // 9: 목표 점수 감소
-    normalProcChance: 0.25,       // 10: 일반 막대 확률
-    normalProcMult: 1.3,          // 10: 일반 막대 발동 시 배수
-    recycleUsesPerRound: 3,       // 11: 재사용 횟수/라운드
-    pegBounceMult: 1.3,           // 12: 페그 강반 — 충돌 후 속력 ×
-    contactScoreCooldownMs: 100,   // 페그/일반 점수 배율 최소 간격
+    duplicateTripleChance: 0.2,
+    pegScoreMult: 1.1,
+    warpScoreMult: 1.5,
+    scoreBarBase: 3,
+    scoreBarEscalate: 1.5,
+    sinkBonusWidthFrac: 0.5,
+    sinkBonusMult: 1.5,
+    targetCutFrac: 0.15,
+    normalProcChance: 0.25,
+    normalProcMult: 1.3,
+    recycleUsesPerRound: 3,
+    pegBounceMult: 1.3,
+    contactScoreCooldownMs: 100,
+    springBounceMult: 4,
+    springMaxSpeed: 18,
+    springRadius: 14,
+    springAngleStep: 15,
   },
 
   /* --- 연출 --- */
@@ -118,13 +118,9 @@ function gameInt(n) {
   return Math.round(Number(n));
 }
 
-/** 막대 길이 — 막대 연장 효과 반영 */
+/** 막대 길이 */
 function barLengthFor(type, game) {
-  let len = CONFIG.barLength;
-  if (game && game.hasEffect('long_special')) {
-    len = CONFIG.barLength * CONFIG.effectBalance.specialLengthMult;
-  }
-  return len;
+  return CONFIG.barLength;
 }
 
 /* CONFIG 에서 파생되는 값 (직접 수정하지 마세요) */
@@ -140,67 +136,100 @@ const BAR_TYPES = {
   warp:      { key: 'warp',      label: '워프 막대',    icon: '↯',  sensor: true,  color: '#6b4f9a', glow: '#8a6bb8' },
 };
 
-/** 라운드 클리어 추가 효과 (고른 뒤 영구) */
+/** Heroicons(outline) path — Tailwind와 함께 쓰는 SVG 아이콘 */
+const RELIC_ICON_PATHS = {
+  bolt: 'M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z',
+  sparkles: 'M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z',
+  users: 'M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z',
+  arrowPath: 'M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99',
+  circleStack: 'M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L12 12.75l-5.571-3m11.142 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3',
+  handRaised: 'M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13',
+  paperAirplane: 'M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5',
+  chartBar: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z',
+  gift: 'M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z',
+  document: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z',
+  shield: 'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z',
+  arrowPathRounded: 'M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3',
+};
+
+function relicIconSvg(iconKey, className = 'relic-icon-svg') {
+  const d = RELIC_ICON_PATHS[iconKey] || RELIC_ICON_PATHS.sparkles;
+  return `<svg class="${className}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="${d}"/></svg>`;
+}
+
+/** 라운드 클리어 유물 (고른 뒤 영구) */
 const EFFECT_TYPES = [
   {
     id: 'multiply_boost',
-    label: '과충전 배수',
+    label: '폭주의 인장',
     desc: '배수 막대가 ×2.3으로 강화됩니다.',
+    icon: 'bolt',
   },
   {
     id: 'pass_stable',
-    label: '안정 궤도',
+    label: '고요한 궤도석',
     desc: '특수 막대 통과 시 꺾임이 3~5°로 완화됩니다.',
+    icon: 'sparkles',
   },
   {
     id: 'duplicate_triple',
-    label: '삼중 복제',
+    label: '삼라분신패',
     desc: '복제 막대가 20% 확률로 공을 3개로 만듭니다.',
+    icon: 'users',
   },
   {
-    id: 'long_special',
-    label: '막대 연장',
-    desc: '모든 막대 길이가 조금 길어집니다.',
+    id: 'map_spring',
+    label: '도약 태엽',
+    desc: '맵에 스프링이 생깁니다. 클릭 후 Q/E로 방향을 바꿀 수 있습니다. 공당 1회, 튕기는 힘이 4배가 됩니다.',
+    icon: 'arrowPath',
   },
   {
     id: 'peg_score',
-    label: '페그 가산',
+    label: '못의 축복',
     desc: '페그에 튕길 때 공 점수가 ×1.1이 됩니다.',
+    icon: 'circleStack',
   },
   {
     id: 'peg_bounce',
-    label: '강한 페그',
+    label: '강철 튕김쇠',
     desc: '페그가 공을 더 강하게 튕깁니다.',
+    icon: 'handRaised',
   },
   {
     id: 'warp_mult',
-    label: '워프 증폭',
+    label: '균열 증폭석',
     desc: '워프 통과 시 공 점수가 ×1.5가 됩니다.',
+    icon: 'paperAirplane',
   },
   {
     id: 'score_boost',
-    label: '점수 증강',
+    label: '점수의 나선',
     desc: '점수 막대 가산이 3점부터 통과할 때마다 ×1.5씩 커집니다.',
+    icon: 'chartBar',
   },
   {
     id: 'sink_bonus',
-    label: '황금 종료',
-    desc: '종료 구역 일부(약 40%)에 들어가면 점수가 ×1.5됩니다.',
+    label: '황금 심연',
+    desc: '종료 구역 일부(약 50%)에 들어가면 점수가 ×1.5됩니다.',
+    icon: 'gift',
   },
   {
     id: 'target_cut',
-    label: '목표 완화',
+    label: '느슨한 계약',
     desc: '모든 라운드 목표 점수가 15% 줄어듭니다.',
+    icon: 'document',
   },
   {
     id: 'normal_proc',
-    label: '일반의 가호',
+    label: '범인의 가호',
     desc: '일반 막대에 튕길 때 25% 확률로 점수가 ×1.3이 됩니다.',
+    icon: 'shield',
   },
   {
     id: 'bar_recycle',
-    label: '재사용',
+    label: '순환 도가니',
     desc: '특수 막대를 재사용 칸에 넣으면 다른 특수 막대로 바꿉니다. 라운드당 3회.',
+    icon: 'arrowPathRounded',
   },
 ];
 

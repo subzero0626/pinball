@@ -49,6 +49,9 @@
     <div id="hudScore" class="round-hud-score">0/25</div>
   </aside>
 
+  <!-- 우측 상단: 보유 유물 -->
+  <aside id="relicTray" class="relic-tray" aria-label="보유 유물"></aside>
+
   <div class="app mx-auto flex min-h-screen max-w-[1100px] flex-wrap items-center justify-center gap-6 px-4 py-8 md:gap-8">
     <!-- ===================== 보드 ===================== -->
     <main class="board-area flex w-full max-w-[560px] flex-col items-center">
@@ -63,8 +66,6 @@
         <div class="sketch-tape tape-right" aria-hidden="true"></div>
         <canvas id="board" class="block w-full max-w-full cursor-crosshair"></canvas>
       </div>
-
-      <p id="message" class="message mt-3 min-h-[1.5rem] max-w-[36rem] text-center font-sketch text-lg leading-snug text-pencil"></p>
     </main>
 
     <!-- ===================== 사이드 패널 ===================== -->
@@ -80,22 +81,22 @@
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="normal">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="score" type="button"
-            data-tip="공이 통과 시 점수 +3. 같은 막대는 공당 1회.">
+            data-tip="공이 통과 시 점수 +3. 빠져나갔다 다시 들어오면 또 발동합니다.">
             <span class="swatch score"></span>점수 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="score">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="multiply" type="button"
-            data-tip="공이 통과 시 점수 ×2. 같은 막대는 공당 1회.">
+            data-tip="공이 통과 시 점수 ×2. 빠져나갔다 다시 들어오면 또 발동합니다.">
             <span class="swatch multiply"></span>배수 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="multiply">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="duplicate" type="button"
-            data-tip="공이 통과 시 같은 점수의 공이 1개 더 생깁니다. 같은 막대는 공당 1회.">
+            data-tip="공이 통과 시 같은 점수의 공이 1개 더 생깁니다. 빠져나갔다 다시 들어오면 또 발동합니다.">
             <span class="swatch duplicate"></span>복제 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="duplicate">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="warp" type="button"
-            data-tip="공이 통과 시 지정한 위치로 이동합니다. ×를 클릭해 이동할 위치를 고르세요.">
+            data-tip="공이 통과 시 지정한 위치로 이동합니다(공당 1회). ×를 클릭해 이동할 위치를 고르세요.">
             <span class="swatch warp"></span>워프 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="warp">0</span>
           </button>
@@ -123,13 +124,13 @@
     </aside>
   </div>
 
-  <!-- 드래프트: 막대 1개 × 3선택지 / 추가 효과 -->
+  <!-- 드래프트: 막대 / 유물 -->
   <div id="draftOverlay" class="draft-overlay" hidden>
     <p id="draftPeekHint" class="draft-peek-hint font-sketch">빈 곳을 다시 클릭하면 선택 창이 열립니다</p>
     <div class="draft-sheet sketch-card">
       <h2 id="draftTitle" class="sketch-heading text-center !text-2xl">막대 고르기</h2>
       <p id="draftSubtitle" class="mb-4 text-center font-sketch text-lg text-pencil">
-        서로 다른 3가지 · 일반은 ×2 · 하나를 고르세요
+        서로 다른 3가지 중 일반은 ×2 · 하나를 고르세요
       </p>
       <p class="draft-peek-tip mb-3 text-center font-sketch text-base text-pencil/70">
         빈 공간 클릭으로 보드를 잠깐 볼 수 있습니다

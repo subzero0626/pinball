@@ -67,12 +67,12 @@ class BarManager {
   makeBarBody(bar) {
     const def = BAR_TYPES[bar.type];
     bar.length = this.lengthOf(bar);
-    this.rollMicroTilt(bar);
+    bar.microTiltDeg = 0;
     const body = Matter.Bodies.rectangle(
       bar.x, bar.y, bar.length, CONFIG.barThickness,
       {
         isStatic: true,
-        isSensor: def.sensor,          // 특수 막대는 관통형
+        isSensor: def.sensor,
         restitution: CONFIG.restitution,
         friction: CONFIG.friction,
         frictionStatic: CONFIG.frictionStatic,
@@ -82,16 +82,6 @@ class BarManager {
     );
     body.gameBar = bar;
     return body;
-  }
-
-  /** 0° 일반 막대만 ±normalFlatJitterDeg 랜덤 기울기 */
-  rollMicroTilt(bar) {
-    if (bar.type === 'normal' && bar.angleDeg === 0) {
-      const mag = CONFIG.normalFlatJitterDeg;
-      bar.microTiltDeg = (Math.random() * 2 - 1) * mag;
-    } else {
-      bar.microTiltDeg = 0;
-    }
   }
 
   physicsAngleDeg(bar) {
@@ -119,7 +109,12 @@ class BarManager {
   /** 막대를 다른 페그 자리로 이동. 대상에 막대가 있으면 서로 자리를 바꾼다. */
   moveBarToPeg(bar, peg) {
     if (!bar || !peg) return false;
-    if (bar.pegId === peg.id) return true;
+
+    // 같은 자리로 드롭 — 드래그 중 페그를 다시 켠 상태일 수 있어 반드시 정리
+    if (bar.pegId === peg.id) {
+      this.restoreAfterDragCancel(bar);
+      return true;
+    }
 
     const other = this.barAtPeg(peg.id);
     if (other) {
@@ -260,7 +255,9 @@ class BarManager {
     }
 
     bar.angleDeg = snapped;
-    Matter.Body.setAngle(bar.body, (snapped * Math.PI) / 180);
+    if (bar.body) Matter.Composite.remove(this.world, bar.body);
+    bar.body = this.makeBarBody(bar);
+    Matter.Composite.add(this.world, bar.body);
     return true;
   }
 
@@ -312,31 +309,26 @@ class BarManager {
     const halfT = CONFIG.barThickness / 2;
     const clear = CONFIG.barClearance;
 
-    // 보드 위/아래 경계
     if (Math.min(a.y, b.y) < halfT || Math.max(a.y, b.y) > CONFIG.sinkY - halfT) return false;
 
-    // 벽과의 간격 — 공이 들어갈 수 없는 좁은 주머니를 만들면 안 된다.
-    // (막대가 벽에 가까우면 그 사이에 공이 끼어 라운드가 끝나지 않는다)
     const ballGap = CONFIG.ballRadius * 2 + clear * 2;
     const leftGap = Math.min(a.x, b.x) - halfT - CONFIG.wallThickness;
     const rightGap = CONFIG.boardWidth - CONFIG.wallThickness - Math.max(a.x, b.x) - halfT;
     if (leftGap < ballGap || rightGap < ballGap) return false;
 
-    // 남아 있는 원형 페그와의 겹침
     const pegNeed = CONFIG.pegRadius + halfT + clear;
     for (const peg of this.board.pegs) {
-      if (!peg.body) continue;              // 이미 막대로 교체된 자리는 검사 제외
-      if (peg.id === bar.pegId) continue;   // 자기 자신의 자리
+      if (!peg.body) continue;
+      if (peg.id === bar.pegId) continue;
       if (Geom.pointSegDist(peg.x, peg.y, a.x, a.y, b.x, b.y) < pegNeed) return false;
     }
 
-    // 다른 막대와의 겹침 — 물리 충돌체가 끼는 문제를 막기 위한 검사
     const barNeed = CONFIG.barThickness + clear;
     const thisPhysical = BAR_TYPES[bar.type].sensor === false;
     for (const other of this.bars) {
       if (other.id === bar.id) continue;
       const otherPhysical = BAR_TYPES[other.type].sensor === false;
-      if (!thisPhysical && !otherPhysical) continue;  // 관통형끼리는 겹쳐도 무해
+      if (!thisPhysical && !otherPhysical) continue;
       const [c, d] = barEndpoints(other.x, other.y, other.angleDeg, this.lengthOf(other));
       if (Geom.segSegDist(a, b, c, d) < barNeed) return false;
     }

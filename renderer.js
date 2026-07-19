@@ -39,6 +39,7 @@ class Renderer {
     this.drawLaunchZone();
     this.drawWarpSpots();
     this.drawPegs();
+    this.drawSprings();
     this.drawBars();
     this.drawWarpLinks();
     this.drawBalls();
@@ -226,6 +227,74 @@ class Renderer {
     }
   }
 
+  drawSprings() {
+    const ctx = this.ctx;
+    const g = this.game;
+    const L = CONFIG.barLength;
+    const T = CONFIG.barThickness;
+    const color = '#c45c5c';
+
+    for (const spring of g.springs) {
+      const selected = g.selectedSpring && g.selectedSpring.id === spring.id;
+      // 발사 방향에 수직인 막대 각도
+      const barRot = ((spring.angleDeg + 90) * Math.PI) / 180;
+      const launchRot = (spring.angleDeg * Math.PI) / 180;
+
+      const rng = this.makeRng(spring.id * 131);
+      const jitterRot = (rng() - 0.5) * 0.03;
+      const jx = (rng() - 0.5) * 0.8;
+      const jy = (rng() - 0.5) * 0.8;
+
+      ctx.save();
+      ctx.translate(spring.x + jx, spring.y + jy);
+      ctx.rotate(barRot + jitterRot);
+
+      ctx.fillStyle = color;
+      this.sketchBleedRoundRect(ctx, -L / 2, -T / 2, L, T, T / 2, spring.id * 41);
+      ctx.fill();
+
+      this.roundRect(ctx, -L / 2, -T / 2, L, T, T / 2);
+      ctx.strokeStyle = '#2a2622';
+      ctx.lineWidth = 1.8 + rng() * 0.35;
+      ctx.stroke();
+
+      if (selected) {
+        ctx.strokeStyle = '#8b2e2e';
+        ctx.lineWidth = 2;
+        this.roundRect(ctx, -L / 2 - 3, -T / 2 - 3, L + 6, T + 6, (T + 6) / 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // 발사 방향 짧은 화살 (막대 중앙에서)
+      ctx.save();
+      ctx.translate(spring.x, spring.y);
+      const len = T / 2 + 12;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(launchRot) * len, Math.sin(launchRot) * len);
+      ctx.strokeStyle = '#2a2622';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      const tipX = Math.cos(launchRot) * len;
+      const tipY = Math.sin(launchRot) * len;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(
+        tipX - Math.cos(launchRot + 2.6) * 6,
+        tipY - Math.sin(launchRot + 2.6) * 6
+      );
+      ctx.lineTo(
+        tipX - Math.cos(launchRot - 2.6) * 6,
+        tipY - Math.sin(launchRot - 2.6) * 6
+      );
+      ctx.closePath();
+      ctx.fillStyle = '#2a2622';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   drawBars() {
     const ctx = this.ctx;
     for (const bar of this.game.bars.bars) {
@@ -247,12 +316,10 @@ class Renderer {
       const L = bar.length || CONFIG.barLength;
       const T = CONFIG.barThickness;
 
-      // 단색 칠 — 면마다 튀어나오는 양이 랜덤
       ctx.fillStyle = color;
       this.sketchBleedRoundRect(ctx, -L / 2, -T / 2, L, T, T / 2, bar.id * 31);
       ctx.fill();
 
-      // 검은 테두리
       this.roundRect(ctx, -L / 2, -T / 2, L, T, T / 2);
       ctx.strokeStyle = '#2a2622';
       ctx.lineWidth = 1.8 + rng() * 0.35;

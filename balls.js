@@ -2,10 +2,10 @@
  * balls.js — 공 생성 / 복제 / 워프 / 점수
  *
  * 공의 내부 데이터:
- *   { id, score, hasWarped, activeSensors, sensorHits, isClone }
+ *   { id, score, hasWarped, activeSensors, isClone }
  * activeSensors 는 "현재 겹쳐 있는 특수 막대 id" 집합으로,
  * 같은 센서 안에서 효과가 여러 번 발동하는 것을 막는다.
- * sensorHits 는 워프 제외 특수 막대 통과 횟수 (기본 1회, 워프 후 2회).
+ * 점수/배수/복제는 재진입 시 무제한. 워프·스프링은 공당 1회.
  * ========================================================================= */
 
 class BallManager {
@@ -32,21 +32,18 @@ class BallManager {
       id: this.nextId++,
       body,
       score: gameInt(opts.score !== undefined ? opts.score : 1),
-      // hasWarped: 한 번이라도 워프했는지 (표시/호환용)
+      // hasWarped / hasSprung: 워프·스프링은 공당 1회
       hasWarped: opts.hasWarped || false,
-      // usedWarps: 이미 사용한 워프 막대 id 집합.
-      // 같은 막대는 다시 탈 수 없지만, 다른 워프 막대는 다시 탈 수 있다.
-      usedWarps: new Set(opts.usedWarps || []),
+      hasSprung: opts.hasSprung || false,
       isClone: opts.isClone || false,
       activeSensors: new Set(opts.activeSensors || []),
-      // 워프 제외 특수 막대(+3/×2/복제) 통과 횟수. 기본 1회, 워프 후 최대 2회.
-      sensorHits: opts.sensorHits instanceof Map
-        ? new Map(opts.sensorHits)
-        : new Map(opts.sensorHits || []),
       // 점수 증강: 이 공이 점수 막대를 통과한 횟수
       scoreBarHits: opts.scoreBarHits || 0,
       stuckContacts: new Set(),
       lastContactScoreAt: 0,
+      lastDirX: opts.lastDirX || 0,
+      stuckSince: 0,
+      stuckWarned: false,
       spawnFlash: 12,
       preVx: 0,
       preVy: 0,
@@ -61,18 +58,13 @@ class BallManager {
     return ball;
   }
 
-  /** 워프 제외 특수 막대: 기본 1회, 워프한 공은 1회 더(최대 2회) */
-  maxSensorHits(ball) {
-    return ball.hasWarped ? 2 : 1;
-  }
-
+  /** 워프 제외 특수 막대는 횟수 제한 없음 (겹쳐 있는 동안만 1회) */
   canUseSensor(ball, barId) {
-    const used = ball.sensorHits.get(barId) || 0;
-    return used < this.maxSensorHits(ball);
+    return true;
   }
 
   markSensorUse(ball, barId) {
-    ball.sensorHits.set(barId, (ball.sensorHits.get(barId) || 0) + 1);
+    /* no-op — 무제한 */
   }
 
   /** 점수 막대: 현재 점수 + amount (결과는 반올림 정수) */
@@ -108,11 +100,11 @@ class BallManager {
         {
           score: gameInt(ball.score),
           hasWarped: ball.hasWarped,
-          usedWarps: ball.usedWarps,
+          hasSprung: ball.hasSprung,
           isClone: true,
           activeSensors: ball.activeSensors,
-          sensorHits: ball.sensorHits,
           scoreBarHits: ball.scoreBarHits || 0,
+          lastDirX: ball.lastDirX || 0,
           velocity: { x: vel.x, y: vel.y },
         }
       );
@@ -131,7 +123,7 @@ class BallManager {
    * 워프 성공 시 hasWarped=true → 다른 특수 막대를 1회 더 쓸 수 있다.
    */
   warpBall(ball, bar) {
-    if (ball.usedWarps.has(bar.id)) return false;   // 이 막대는 이미 사용함
+    if (ball.hasWarped) return false;
     if (!bar.warpSpot) {
       this.game.addEffect(
         ball.body.position.x,
@@ -149,9 +141,8 @@ class BallManager {
     Matter.Body.setVelocity(ball.body, { x: 0, y: CONFIG.warpExitSpeed });
     Matter.Body.setAngularVelocity(ball.body, 0);
 
-    ball.usedWarps.add(bar.id);     // 이 막대는 다시 사용 불가
     ball.hasWarped = true;
-    ball.activeSensors.clear();     // 새 위치에서 다시 판정
+    ball.activeSensors.clear();
 
     this.game.addRing(from.x, from.y, BAR_TYPES.warp.glow);
     this.game.addRing(to.x, to.y, BAR_TYPES.warp.glow);
@@ -173,8 +164,13 @@ class BallManager {
     for (const ball of this.balls) {
       const v = ball.body.velocity;
       const speed = Math.hypot(v.x, v.y);
-      if (speed > CONFIG.maxBallSpeed) {
-        const k = CONFIG.maxBallSpeed / speed;
+      const boosted =
+        ball.springBoostUntil && performance.now() < ball.springBoostUntil;
+      const cap = boosted
+        ? CONFIG.effectBalance.springMaxSpeed || 18
+        : CONFIG.maxBallSpeed;
+      if (speed > cap) {
+        const k = cap / speed;
         Matter.Body.setVelocity(ball.body, { x: v.x * k, y: v.y * k });
       }
       if (ball.spawnFlash > 0) ball.spawnFlash--;
