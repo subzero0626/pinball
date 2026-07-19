@@ -1344,6 +1344,7 @@ class Game {
 
   /** 공이 보드 아래 종료 구역에 도착 */
   sinkBall(ball) {
+    // 유리화 공: 확률 파괴 시 점수 없음 · 깨짐! 만 표시
     if (
       ball.isGlass &&
       Math.random() < (CONFIG.shopBars.glassBreakChance ?? 0.5)
@@ -1351,9 +1352,10 @@ class Game {
       this.addEffect(
         ball.body.position.x,
         CONFIG.sinkY + 12,
-        '깨짐',
+        '깨짐!',
         BAR_TYPES.glass.glow
       );
+      if (this.hoverBall && this.hoverBall.id === ball.id) this.hoverBall = null;
       this.balls.removeBall(ball);
       return;
     }
