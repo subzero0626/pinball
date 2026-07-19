@@ -6,7 +6,7 @@
  * activeSensors 는 "현재 겹쳐 있는 특수 막대 id" 집합으로,
  * 같은 센서 안에서 효과가 여러 번 발동하는 것을 막는다.
  * 점수/배수/복제는 재진입 시 무제한. 워프는 공당 1회.
- * 불완전 워프(chaos)는 hasWarped 와 무관.
+ * 불완전 워프(chaos)도 공당 1회 (일반 워프와 별개).
  * 스프링은 공마다 스프링당 1회 발사 후 일반 막대. 워프한 공도 미사용 스프링은 발사.
  * ========================================================================= */
 
@@ -45,8 +45,9 @@ class BallManager {
       body,
       score,
       scoreFormula: opts.scoreFormula != null ? String(opts.scoreFormula) : String(score),
-      // hasWarped: 워프는 공당 1회. usedSpringIds: 스프링은 공·스프링당 1회
+      // hasWarped: 일반 워프 공당 1회. hasChaosWarped: 불완전 워프 공당 1회
       hasWarped: opts.hasWarped || false,
+      hasChaosWarped: opts.hasChaosWarped || false,
       lastSpringAt: opts.lastSpringAt || 0,
       usedSpringIds: new Set(opts.usedSpringIds || []),
       isClone: opts.isClone || false,
@@ -124,6 +125,7 @@ class BallManager {
           score: gameInt(ball.score),
           scoreFormula: ball.scoreFormula,
           hasWarped: ball.hasWarped,
+          hasChaosWarped: ball.hasChaosWarped || false,
           lastSpringAt: ball.lastSpringAt || 0,
           isClone: true,
           isMirror: ball.isMirror || false,
@@ -182,10 +184,11 @@ class BallManager {
 
   /**
    * 불완전 워프 — 보드 워프 후보 중 랜덤 이동.
-   * hasWarped 는 건드리지 않는다 (일반 워프와 독립).
+   * 공당 1회. 일반 워프(hasWarped)와는 별개.
    */
   chaosWarpBall(ball) {
     if (!ball || !ball.body) return false;
+    if (ball.hasChaosWarped) return false;
     const bars = this.game.bars.bars;
     const spots = this.game.board.warpSpots.filter((s) =>
       this.game.board.isWarpSpotFree(s, bars)
@@ -206,6 +209,7 @@ class BallManager {
     Matter.Body.setPosition(ball.body, { x: to.x, y: to.y });
     Matter.Body.setVelocity(ball.body, { x: 0, y: CONFIG.warpExitSpeed });
     Matter.Body.setAngularVelocity(ball.body, 0);
+    ball.hasChaosWarped = true;
     if (ball.isGlass) ball.glassPurple = true;
     ball.activeSensors.clear();
 

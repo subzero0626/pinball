@@ -1450,6 +1450,15 @@ class Game {
       this.ui.setMessage(`${BAR_TYPES[tool].label} 이(가) 없습니다. 드래프트에서 얻으세요.`);
       return;
     }
+    // 같은 도구를 다시 누르면 선택 해제
+    if (this.selectedTool === tool) {
+      this.selectedTool = null;
+      if (tool === 'warp' && this.selectedBar && this.selectedBar.type === 'warp') {
+        this.selectedBar = null;
+      }
+      this.ui.setMessage('선택 해제.');
+      return;
+    }
     this.selectedTool = tool;
     // 워프가 아닌 도구로 바꾸면 워프 선택·흐린 × 즉시 해제
     if (tool !== 'warp' && this.selectedBar && this.selectedBar.type === 'warp') {
@@ -1526,6 +1535,7 @@ class Game {
   beginInvDrag(type, clientX, clientY) {
     if (this.phase !== 'edit' || type === 'delete') return;
     if (this.inventoryCount(type) <= 0) return;
+    const wasSelected = this.selectedTool === type;
     this.selectedTool = type;
     if (type !== 'warp') this.selectedBar = null;
     this.invDrag = {
@@ -1533,6 +1543,7 @@ class Game {
       startX: clientX,
       startY: clientY,
       moved: false,
+      wasSelected,
     };
     this.ui.showInvGhost(type, clientX, clientY);
     this.ui.setMessage(`${BAR_TYPES[type].label} — 페그 위에 놓으세요.`);
@@ -1572,14 +1583,22 @@ class Game {
 
   endInvDrag(clientX, clientY) {
     if (!this.invDrag) return;
-    const { type, moved } = this.invDrag;
+    const { type, moved, wasSelected } = this.invDrag;
     this.invDrag = null;
     this.ui.hideInvGhost();
     this.ui.setRecycleHot(false);
     this.ui.setSellHot(false);
 
     if (!moved) {
-      this.selectTool(type);
+      if (wasSelected) {
+        this.selectedTool = null;
+        if (type === 'warp' && this.selectedBar && this.selectedBar.type === 'warp') {
+          this.selectedBar = null;
+        }
+        this.ui.setMessage('선택 해제.');
+      } else {
+        this.selectTool(type);
+      }
       this.hoverPeg = null;
       return;
     }

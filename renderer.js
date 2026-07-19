@@ -269,7 +269,7 @@ class Renderer {
 
       if (this.game.phase === 'edit' && this.game.isPegLocked(peg)) {
         ctx.save();
-        ctx.translate(peg.x, peg.y);
+        ctx.translate(peg.x, peg.y - 3);
         const s = 1.55;
         ctx.scale(s, s);
         const red = '#9a2e2e';
