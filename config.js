@@ -57,6 +57,8 @@ const CONFIG = {
   barThickness: 8,
   angleStep: 15,
   barClearance: 2,
+  /* 특수 막대 발동: 직전 위치가 막대 위여야 함 — 이만큼은 겹쳐도 인정 (봐주기) */
+  sensorAboveSlack: 6,
 
   /* 공 정지 → 드롭 0점 */
   stuckSpeedMax: 0.08,

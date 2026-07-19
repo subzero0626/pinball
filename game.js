@@ -576,14 +576,15 @@ class Game {
   }
 
   /**
-   * 특수 막대 발동 조건 — 직전 위치에서 공 전체가 막대보다 위에 있었는지
-   * (y↓ 좌표: 공의 맨 아래 ≤ 막대 AABB 맨 위)
+   * 특수 막대 발동 조건 — 직전 위치에서 공이 대체로 막대 위에 있었는지
+   * (완전히 100%는 아니어도 sensorAboveSlack 만큼은 봐줌)
    */
   ballWasFullyAboveBar(ball, bar) {
     if (!ball || !bar) return false;
     const py = ball.preY != null ? ball.preY : ball.body.position.y;
     const ballBottom = py + CONFIG.ballRadius;
-    return ballBottom <= this.barWorldTopY(bar) + 0.01;
+    const slack = CONFIG.sensorAboveSlack ?? CONFIG.ballRadius * 0.55;
+    return ballBottom <= this.barWorldTopY(bar) + slack;
   }
 
   /** 막대 사각형의 월드 좌표 상단(가장 작은 y) */
