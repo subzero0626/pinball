@@ -492,10 +492,11 @@ class Renderer {
         ctx.save();
         ctx.globalAlpha = Math.min(1, t * 1.6);
         ctx.fillStyle = fx.color;
-        ctx.font = 'bold 18px Gaegu, cursive';
+        const size = fx.big ? 28 : 18;
+        ctx.font = `bold ${size}px Gaegu, cursive`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(fx.text, fx.x, fx.y - (1 - t) * 26);
+        ctx.fillText(fx.text, fx.x, fx.y - (1 - t) * (fx.big ? 36 : 26));
         ctx.restore();
       }
     }

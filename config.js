@@ -157,6 +157,7 @@ const CONFIG = {
     mirrorMultiplyFactor: 1.5,
     mirrorDuplicateChance: 0.5,
     mirrorTripleChance: 0.075,
+    normalSupplyChance: 0.5,
   },
 
   /* --- 연출 (지속 시간 ms — 주사율 무관) --- */
@@ -279,7 +280,7 @@ const EFFECT_TYPES = [
   {
     id: 'map_spring',
     label: '도약 태엽',
-    desc: '맵에 빨간 스프링이 생깁니다.\n공마다 1회 ×3으로 발사한 뒤, 그 공에게는 일반 막대처럼 동작합니다.',
+    desc: '맵에 빨간 스프링이 생깁니다.\n드래그로 위치를 옮기고 Q/E로 방향을 바꿀 수 있습니다.\n공마다 1회 ×3으로 발사한 뒤, 그 공에게는 일반 막대처럼 동작합니다.',
     icon: 'arrowPath',
   },
   {
@@ -297,7 +298,7 @@ const EFFECT_TYPES = [
   {
     id: 'warp_mult',
     label: '균열 증폭석',
-    desc: '워프를 지날 때 점수가 ×1.5가 됩니다.\n또한 워프 도착지의 거리 제한이 사라집니다.',
+    desc: '워프 도착지의 거리 제한이 사라집니다.',
     icon: 'paperAirplane',
   },
   {
@@ -341,6 +342,12 @@ const EFFECT_TYPES = [
     label: '거울 낙하',
     desc: '낙하 시 반대편에 거울 공이 함께 떨어집니다. (중앙 슬롯 제외)\n거울 공은 점수·배수·복제 효과가 절반이고, 워프는 그대로입니다.',
     icon: 'arrowsRightLeft',
+  },
+  {
+    id: 'normal_supply',
+    label: '목재 보급',
+    desc: '즉시 일반 막대 1개를 얻습니다.\n드롭을 시작할 때마다 50% 확률로 일반 막대 1개를 더 얻습니다.',
+    icon: 'square2Stack',
   },
 ];
 

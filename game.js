@@ -43,6 +43,7 @@ class Game {
     this.dragging = null;
     this.invDrag = null;
     this.barDrag = null;
+    this.springDrag = null;
     this.deleteMarquee = null;              // { x0, y0, x1, y1 } 삭제 드래그 영역
     this.inventory = this.startingInventory();
     this.draftOffers = [];                  // 막대: [{type,count}, ...] / 효과: [{id,label,desc}, ...]
@@ -389,6 +390,10 @@ class Game {
     this.ownedEffects.push(effect.id);
     if (effect.id === 'map_spring') this.spawnMapSpring();
     if (effect.id === 'sink_bonus') this.rollSinkBonusZone();
+    if (effect.id === 'normal_supply') {
+      this.inventory.normal = (this.inventory.normal || 0) + 1;
+      this.ui.setMessage('목재 보급 — 일반 막대 +1');
+    }
     this.ui.renderRelicTray();
     return true;
   }
@@ -398,6 +403,26 @@ class Game {
     this.shopRerollCost = CONFIG.shop.rerollStartCost;
     this.refreshShopOffers();
     this.lockRandomPeg();
+    this.playRoundClearFX();
+  }
+
+  playRoundClearFX() {
+    const cx = CONFIG.boardWidth / 2;
+    const cy = CONFIG.boardHeight * 0.38;
+    this.addEffect(cx, cy, '라운드 클리어!', '#c9a227', { big: true, life: 1400 });
+    this.addRing(cx, cy, '#c9a227');
+    this.addRing(cx, cy - 16, '#e6b422');
+    const sparks = ['✦', '✧', '✧', '✦', '✧'];
+    for (let i = 0; i < sparks.length; i++) {
+      const a = (Math.PI * 2 * i) / sparks.length - Math.PI / 2;
+      this.addEffect(
+        cx + Math.cos(a) * 52,
+        cy + Math.sin(a) * 36,
+        sparks[i],
+        i % 2 === 0 ? '#8a6a12' : '#2f5d8c',
+        { life: 1100 }
+      );
+    }
   }
 
   sellPriceFor(type) {
@@ -576,7 +601,7 @@ class Game {
     return { x: cx, y: cy };
   }
 
-  isSpringPosClear(x, y, need) {
+  isSpringPosClear(x, y, need, ignoreId = null) {
     for (const peg of this.board.pegs) {
       if (!peg.body) continue;
       if (Math.hypot(peg.x - x, peg.y - y) < need + CONFIG.pegRadius) return false;
@@ -588,6 +613,7 @@ class Game {
       }
     }
     for (const s of this.springs) {
+      if (ignoreId != null && s.id === ignoreId) continue;
       if (Math.hypot(s.x - x, s.y - y) < need * 2) return false;
     }
     return true;
@@ -607,7 +633,9 @@ class Game {
     this.springs.push(spring);
     this.selectedSpring = spring;
     this.selectedBar = null;
-    this.ui.setMessage('도약 태엽 — 스프링이 맵에 생겼습니다. Q/E로 방향을 바꾸세요.');
+    this.ui.setMessage(
+      '도약 태엽 — 스프링이 맵에 생겼습니다. 드래그로 이동, Q/E로 방향.'
+    );
     return spring;
   }
 
@@ -662,6 +690,87 @@ class Game {
     if (spring.body) {
       Matter.Body.setAngle(spring.body, ((spring.angleDeg + 90) * Math.PI) / 180);
     }
+  }
+
+  clampSpringPos(x, y) {
+    const margin = CONFIG.wallThickness + CONFIG.barLength / 2 + 4;
+    const minY = CONFIG.launchZoneHeight + 20;
+    const maxY = CONFIG.sinkY - 24;
+    return {
+      x: Math.max(margin, Math.min(CONFIG.boardWidth - margin, x)),
+      y: Math.max(minY, Math.min(maxY, y)),
+    };
+  }
+
+  setSpringPosition(spring, x, y) {
+    if (!spring) return false;
+    const p = this.clampSpringPos(x, y);
+    const need = (CONFIG.effectBalance.springRadius || 14) + 6;
+    if (!this.isSpringPosClear(p.x, p.y, need, spring.id)) return false;
+    spring.x = p.x;
+    spring.y = p.y;
+    if (spring.body) Matter.Body.setPosition(spring.body, { x: p.x, y: p.y });
+    return true;
+  }
+
+  beginSpringRelocate(spring, clientX, clientY, boardX, boardY) {
+    if (this.phase !== 'edit' || !spring) return;
+    this.selectedSpring = spring;
+    this.selectedBar = null;
+    this.springDrag = {
+      spring,
+      startX: clientX,
+      startY: clientY,
+      offsetX: boardX - spring.x,
+      offsetY: boardY - spring.y,
+      moved: false,
+      fromX: spring.x,
+      fromY: spring.y,
+    };
+  }
+
+  moveSpringRelocate(clientX, clientY) {
+    if (!this.springDrag) return;
+    const dx = clientX - this.springDrag.startX;
+    const dy = clientY - this.springDrag.startY;
+    if (Math.hypot(dx, dy) > 8) this.springDrag.moved = true;
+    if (!this.springDrag.moved) return;
+
+    const canvas = this.renderer.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const x =
+      ((clientX - rect.left) / rect.width) * CONFIG.boardWidth - this.springDrag.offsetX;
+    const y =
+      ((clientY - rect.top) / rect.height) * CONFIG.boardHeight - this.springDrag.offsetY;
+    const p = this.clampSpringPos(x, y);
+    const spring = this.springDrag.spring;
+    spring.x = p.x;
+    spring.y = p.y;
+    if (spring.body) Matter.Body.setPosition(spring.body, { x: p.x, y: p.y });
+  }
+
+  endSpringRelocate() {
+    if (!this.springDrag) return;
+    const { spring, moved, fromX, fromY } = this.springDrag;
+    this.springDrag = null;
+    if (!moved) {
+      this.selectedSpring = spring;
+      this.selectedBar = null;
+      this.ui.setMessage(
+        `스프링 선택 (${spring.angleDeg}°) — 드래그로 이동, Q/E·휠로 회전`
+      );
+      return;
+    }
+    const need = (CONFIG.effectBalance.springRadius || 14) + 6;
+    if (!this.isSpringPosClear(spring.x, spring.y, need, spring.id)) {
+      spring.x = fromX;
+      spring.y = fromY;
+      if (spring.body) Matter.Body.setPosition(spring.body, { x: fromX, y: fromY });
+      this.ui.setMessage('그 위치에는 스프링을 둘 수 없습니다.');
+      return;
+    }
+    this.selectedSpring = spring;
+    this.ui.setMessage(`스프링 이동 완료 (${Math.round(spring.angleDeg)}°) — Q/E로 회전`);
   }
 
   enterEditAfterDraft(gainedType, count = 1) {
@@ -1117,9 +1226,7 @@ class Game {
         }
         case 'warp': {
           const ok = this.balls.warpBall(ball, bar);
-          if (ok && this.hasEffect('warp_mult')) {
-            this.balls.multiplyScore(ball, CONFIG.effectBalance.warpScoreMult);
-          }
+          // 균열 증폭석(warp_mult): 거리 제한 해제는 워프 도착 지정 시 적용
           // 워프 성공 시에는 출구 속도를 유지 (꺾기로 궤도가 깨지지 않게)
           if (!ok && BAR_TYPES[bar.type].sensor) {
             this.nudgeBallOnPass(ball);
@@ -1238,16 +1345,6 @@ class Game {
   startDrop() {
     if (this.phase !== 'edit') return;
 
-    this.bars.pruneWarpTargets();
-    const unset = this.bars.bars.filter((b) => b.type === 'warp' && !b.warpSpot);
-    if (unset.length > 0) {
-      this.ui.setMessage('도착 위치가 지정되지 않은 워프 막대가 있습니다. 통과해도 효과가 발동하지 않습니다.');
-    } else {
-      this.ui.setMessage(
-        `드롭 ${this.dropIndex}/${CONFIG.dropsPerRound} 실행 중 — 편집이 잠겼습니다.`
-      );
-    }
-
     this.phase = 'run';
     this.paused = false;
     this.selectedBar = null;
@@ -1264,6 +1361,29 @@ class Game {
     this.pendingFlatRolls = [];
     this.pendingPegJitters = [];
     this.snapLaunchToSlot();
+
+    let supplyNote = '';
+    if (
+      this.hasEffect('normal_supply') &&
+      Math.random() < (CONFIG.effectBalance.normalSupplyChance ?? 0.5)
+    ) {
+      this.inventory.normal = (this.inventory.normal || 0) + 1;
+      supplyNote = ' · 목재 보급! 일반 막대 +1';
+    }
+
+    this.bars.pruneWarpTargets();
+    const unset = this.bars.bars.filter((b) => b.type === 'warp' && !b.warpSpot);
+    if (unset.length > 0) {
+      this.ui.setMessage(
+        '도착 위치가 지정되지 않은 워프 막대가 있습니다. 통과해도 효과가 발동하지 않습니다.' +
+          supplyNote
+      );
+    } else {
+      this.ui.setMessage(
+        `드롭 ${this.dropIndex}/${CONFIG.dropsPerRound} 실행 중 — 편집이 잠겼습니다.` +
+          supplyNote
+      );
+    }
 
     const startScore = this.ballStartScore();
     this.balls.createBall(this.launchX, CONFIG.launchY, {
@@ -1740,7 +1860,9 @@ class Game {
     if (this.phase !== 'edit') return;
     if (this.selectedSpring) {
       this.rotateSpring(this.selectedSpring, delta);
-      this.ui.setMessage(`스프링 방향 ${this.selectedSpring.angleDeg}° — Q/E·휠로 회전`);
+      this.ui.setMessage(
+        `스프링 방향 ${this.selectedSpring.angleDeg}° — 드래그로 이동 · Q/E·휠로 회전`
+      );
       return;
     }
     if (!this.selectedBar) return;
@@ -1758,7 +1880,9 @@ class Game {
     if (spring) {
       this.selectedSpring = spring;
       this.selectedBar = null;
-      this.ui.setMessage(`스프링 선택 (${spring.angleDeg}°) — Q/E·휠로 방향 회전`);
+      this.ui.setMessage(
+        `스프링 선택 (${spring.angleDeg}°) — 드래그로 이동, Q/E·휠로 방향 회전`
+      );
       return;
     }
 
@@ -1992,6 +2116,14 @@ class Game {
         return;
       }
 
+      // 스프링: 드래그로 위치 이동
+      const springHit = this.springAt(p.x, p.y);
+      if (springHit) {
+        this.pressPoint = null;
+        this.beginSpringRelocate(springHit, evt.clientX, evt.clientY, p.x, p.y);
+        return;
+      }
+
       // 배치된 막대: 드래그로 다른 페그로 이동
       const bar = this.bars.barAt(p.x, p.y);
       if (bar) {
@@ -2004,7 +2136,7 @@ class Game {
     canvas.addEventListener('mousemove', (evt) => {
       const p = toBoard(evt);
 
-      if (this.phase === 'edit' && !this.barDrag && !this.invDrag) {
+      if (this.phase === 'edit' && !this.barDrag && !this.invDrag && !this.springDrag) {
         this.hoverPeg = this.board.pegAt(p.x, p.y);
         this.hoverBar = this.bars.barAt(p.x, p.y);
         this.ui.updateBoardBarTip(this.hoverBar);
@@ -2056,7 +2188,7 @@ class Game {
     });
 
     const endDrag = (evt) => {
-      if (this.barDrag || this.invDrag) return;
+      if (this.barDrag || this.invDrag || this.springDrag) return;
 
       const drag = this.dragging;
       this.dragging = null;
@@ -2122,7 +2254,7 @@ class Game {
         this.dragging = null;
         this.deleteMarquee = null;
       }
-      if (!this.barDrag && !this.invDrag) {
+      if (!this.barDrag && !this.invDrag && !this.springDrag) {
         this.hoverPeg = null;
         this.hoverBar = null;
         this.hoverBall = null;
@@ -2143,11 +2275,13 @@ class Game {
     window.addEventListener('pointermove', (evt) => {
       if (this.invDrag) this.moveInvDrag(evt.clientX, evt.clientY);
       else if (this.barDrag) this.moveBarRelocate(evt.clientX, evt.clientY);
+      else if (this.springDrag) this.moveSpringRelocate(evt.clientX, evt.clientY);
     });
 
     window.addEventListener('pointerup', (evt) => {
       if (this.invDrag) this.endInvDrag(evt.clientX, evt.clientY);
       else if (this.barDrag) this.endBarRelocate(evt.clientX, evt.clientY);
+      else if (this.springDrag) this.endSpringRelocate();
     });
 
     window.addEventListener('pointercancel', () => {
@@ -2162,6 +2296,13 @@ class Game {
         this.barDrag = null;
         this.hoverPeg = null;
         this.ui.hideInvGhost();
+      }
+      if (this.springDrag) {
+        const { spring, fromX, fromY } = this.springDrag;
+        spring.x = fromX;
+        spring.y = fromY;
+        if (spring.body) Matter.Body.setPosition(spring.body, { x: fromX, y: fromY });
+        this.springDrag = null;
       }
     });
   }
@@ -2211,9 +2352,18 @@ class Game {
   /* ------------------------------------------------------------------ *
    *  연출
    * ------------------------------------------------------------------ */
-  addEffect(x, y, text, color) {
-    const life = CONFIG.effectLifeMs || 750;
-    this.effects.push({ kind: 'text', x, y, text, color, life, maxLife: life });
+  addEffect(x, y, text, color, opts = {}) {
+    const life = opts.life || CONFIG.effectLifeMs || 750;
+    this.effects.push({
+      kind: 'text',
+      x,
+      y,
+      text,
+      color,
+      life,
+      maxLife: life,
+      big: !!opts.big,
+    });
   }
 
   addRing(x, y, color) {
