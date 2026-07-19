@@ -269,14 +269,22 @@ class Renderer {
 
       if (this.game.phase === 'edit' && this.game.isPegLocked(peg)) {
         ctx.save();
-        ctx.font = 'bold 12px Gaegu, cursive';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = '#2a2622';
-        ctx.fillStyle = '#c9a227';
-        ctx.strokeText('🔒', peg.x, peg.y - CONFIG.pegRadius - 9);
-        ctx.fillText('🔒', peg.x, peg.y - CONFIG.pegRadius - 9);
+        const size = 18;
+        ctx.translate(peg.x, peg.y);
+        ctx.scale(size / 24, size / 24);
+        ctx.translate(-12, -12);
+        const path = new Path2D(
+          (typeof RELIC_ICON_PATHS !== 'undefined' && RELIC_ICON_PATHS.lock) ||
+            'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z'
+        );
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 2.4;
+        ctx.strokeStyle = '#3d3420';
+        ctx.stroke(path);
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = '#6b5410';
+        ctx.stroke(path);
         ctx.restore();
       }
     }
