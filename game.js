@@ -47,7 +47,7 @@ class Game {
     this.inventory = this.startingInventory();
     this.draftOffers = [];                  // 막대: [{type,count}, ...] / 효과: [{id,label,desc}, ...]
     this.ownedEffects = [];                 // 라운드 클리어로 고른 유물
-    this.sharedScoreBarHits = 0;            // 점수 나선 유물 — 모든 점수 막대·공이 공유
+    this.sharedScoreBarHits = 0;            // 점수 나선 유물 — 드롭 내 모든 점수 막대·공 공유
     this.sinkBonusZone = null;              // { x0, x1, mult } | null
     this.recycleUsesLeft = 0;               // 재사용 남은 횟수 (라운드당)
 
@@ -887,6 +887,7 @@ class Game {
     this.rollSinkBonusZone();
     this.dragging = null;
     this.dropScore = 0;
+    this.sharedScoreBarHits = 0; // 점수 나선 — 드롭마다 초기화
     this.usedDeflectKeys.clear();
     this.pendingDeflects = [];
     this.pendingFlatRolls = [];
