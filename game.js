@@ -345,6 +345,7 @@ class Game {
       x: pos.x,
       y: pos.y,
       angleDeg: 270, // 기본: 위쪽 (y↓ 좌표)
+      spent: false,  // true면 일반 막대처럼 물리 충돌
       body: null,
     };
     spring.body = this.makeSpringBody(spring);
@@ -361,14 +362,37 @@ class Game {
     const T = CONFIG.barThickness;
     // 막대 장축은 발사 방향에 수직
     const barAngle = ((spring.angleDeg + 90) * Math.PI) / 180;
+    const solid = !!spring.spent;
     const body = Matter.Bodies.rectangle(spring.x, spring.y, L, T, {
       isStatic: true,
-      isSensor: true,
+      isSensor: !solid,
+      restitution: CONFIG.restitution,
+      friction: CONFIG.friction,
+      frictionStatic: CONFIG.frictionStatic,
       angle: barAngle,
       label: 'spring',
     });
     body.gameSpring = spring;
     return body;
+  }
+
+  /** 한 번 발사 후 일반 막대처럼 물리 바디로 전환 */
+  solidifySpring(spring) {
+    if (!spring || spring.spent) return;
+    spring.spent = true;
+    if (spring.body) {
+      Matter.Composite.remove(this.world, spring.body);
+      spring.body = null;
+    }
+    spring.body = this.makeSpringBody(spring);
+    Matter.Composite.add(this.world, spring.body);
+  }
+
+  /** 스프링 막대 물리 각도(도) — 장축 기준, 일반 막대와 동일 좌표계 */
+  springBarAngleDeg(spring) {
+    let a = spring.angleDeg + 90;
+    a = ((a % 180) + 180) % 180;
+    return a;
   }
 
   springAt(x, y) {
@@ -439,13 +463,42 @@ class Game {
         const bar = other.gameBar || null;
         const spring = other.gameSpring || null;
 
-        // 맵 스프링 — 0.1초 쿨다운, 입사 속력(일반 상한 기준)×mult
+        // 맵 스프링 — 미사용: 부스트 / 사용 후: 일반 막대 충돌
         if (spring) {
+          if (spring.spent) {
+            const obstacleKey = `spring:${spring.id}`;
+            if (this.hasEffect('normal_proc')) {
+              this.tryContactScoreMult(ball, obstacleKey, () => {
+                if (Math.random() < CONFIG.effectBalance.normalProcChance) {
+                  this.balls.multiplyScore(ball, CONFIG.effectBalance.normalProcMult);
+                }
+              });
+            }
+            if (!this.usedDeflectKeys.has(obstacleKey)) {
+              this.pendingDeflects.push({
+                ballId: ball.id,
+                obstacleKey,
+                otherX: other.position.x,
+                otherY: other.position.y,
+                isPeg: false,
+                barAngleDeg: this.springBarAngleDeg(spring),
+                preVx: ballBody.velocity.x,
+                preVy: ballBody.velocity.y,
+              });
+            }
+            if (this.springBarAngleDeg(spring) === 0) {
+              const preferX =
+                Math.abs(ballBody.velocity.x) > CONFIG.lastDirMinSpeed
+                  ? ballBody.velocity.x
+                  : (ball.lastDirX || 0);
+              this.pendingFlatRolls.push({ ballId: ball.id, preferX });
+            }
+            continue;
+          }
+
           const now = performance.now();
           const cd = CONFIG.effectBalance.springCooldownMs || 100;
           if (ball.lastSpringAt && now - ball.lastSpringAt < cd) continue;
-          // 같은 프레임 연속 판정 막기 — 워프해도 이 시각은 유지
-          ball.lastSpringAt = now;
           this.pendingSpringBoosts.push({
             ballId: ball.id,
             springId: spring.id,
@@ -528,6 +581,7 @@ class Game {
         if (ball.stuckContacts) {
           if (other.gamePeg) ball.stuckContacts.delete(`peg:${other.gamePeg.id}`);
           if (bar) ball.stuckContacts.delete(`bar:${bar.id}`);
+          if (other.gameSpring) ball.stuckContacts.delete(`spring:${other.gameSpring.id}`);
         }
       }
     });
@@ -1145,7 +1199,7 @@ class Game {
     return hit.length;
   }
 
-  /** 스프링 부스트 — 일반 속력 상한 기준 × springBounceMult (이미 부스트된 속력으로 재증폭 방지) */
+  /** 스프링 부스트 — 일반 속력 상한 기준 × springBounceMult, 성공 시 일반 막대로 전환 */
   processPendingSpringBoosts() {
     if (this.pendingSpringBoosts.length === 0) return;
     const queue = this.pendingSpringBoosts;
@@ -1164,6 +1218,9 @@ class Game {
       if (!ball || !ball.body) continue;
       if (ball.lastSpringAt && now - ball.lastSpringAt < cd) continue;
 
+      const spring = this.springs.find((s) => s.id === item.springId);
+      if (!spring || spring.spent) continue;
+
       const recorded = Math.hypot(item.preVx, item.preVy);
       const current = Math.hypot(ball.body.velocity.x, ball.body.velocity.y);
       // 이미 스프링/고속으로 뛴 속력을 다시 ×하면 폭주 → 일반 상한으로만 계산
@@ -1178,6 +1235,7 @@ class Game {
       });
       ball.lastSpringAt = now;
       ball.springBoostUntil = now + 450;
+      this.solidifySpring(spring);
       this.addRing(
         ball.body.position.x,
         ball.body.position.y,

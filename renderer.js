@@ -266,7 +266,9 @@ class Renderer {
       }
       ctx.restore();
 
-      // 발사 방향 화살 (노란색, 굵게)
+      // 발사 전만 노란 화살 표시 (사용 후에는 일반 막대)
+      if (spring.spent) continue;
+
       ctx.save();
       ctx.translate(spring.x, spring.y);
       const len = T / 2 + 14;
