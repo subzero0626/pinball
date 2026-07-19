@@ -1285,10 +1285,25 @@ class Game {
   }
 
   endDrop() {
-    this.roundScore += this.dropScore;
+    // 중복 호출 방지 (빈 보드 체크 + 끼임 실패 등이 겹칠 때)
+    if (this.phase !== 'run') return;
+    this.phase = 'drop_end';
+    this.paused = false;
+    this._physAcc = 0;
+
+    this.pendingEffects = [];
+    this.pendingDeflects = [];
+    this.pendingFlatRolls = [];
+    this.pendingPegJitters = [];
+    this.pendingSpringBoosts = [];
+    this.balls.removeAll();
+
+    const dropPoints = this.dropScore;
+    this.roundScore = gameInt(this.roundScore + dropPoints);
     const target = this.getTargetScore();
     const dropDone = this.dropIndex;
     const lastDrop = dropDone >= CONFIG.dropsPerRound;
+    const roundScoreNow = this.roundScore;
 
     if (this.growthMult != null) {
       this.growthMult =
@@ -1297,22 +1312,32 @@ class Game {
         ) / 100;
     }
 
-    if (lastDrop) {
-      if (this.roundScore >= target) {
-        this.openEffectDraft(
-          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! +${CONFIG.shop.roundGold}G. 상점을 이용하세요.`
-        );
-      } else {
-        const failedSum = this.roundScore;
-        this.openFailScreen(failedSum, target);
-      }
-      return;
+    if (this._dropEndTimer) {
+      clearTimeout(this._dropEndTimer);
+      this._dropEndTimer = null;
     }
 
-    this.dropIndex += 1;
-    this.openBarDraft(
-      `드롭 ${dropDone} 종료 (+${this.dropScore}점). 라운드 합계 ${this.roundScore}/${target}. 막대 하나를 고른 뒤 드롭 ${this.dropIndex}을 준비하세요.`
-    );
+    const delay = CONFIG.dropEndDelayMs ?? 550;
+    this._dropEndTimer = setTimeout(() => {
+      this._dropEndTimer = null;
+      if (this.phase !== 'drop_end') return;
+
+      if (lastDrop) {
+        if (roundScoreNow >= target) {
+          this.openEffectDraft(
+            `드롭 ${dropDone} 종료 (+${dropPoints}). 합계 ${roundScoreNow}/${target} — 목표 달성! +${CONFIG.shop.roundGold}G. 상점을 이용하세요.`
+          );
+        } else {
+          this.openFailScreen(roundScoreNow, target);
+        }
+        return;
+      }
+
+      this.dropIndex += 1;
+      this.openBarDraft(
+        `드롭 ${dropDone} 종료 (+${dropPoints}점). 라운드 합계 ${roundScoreNow}/${target}. 막대 하나를 고른 뒤 드롭 ${this.dropIndex}을 준비하세요.`
+      );
+    }, delay);
   }
 
   openFailScreen(failedSum, target) {
@@ -1421,6 +1446,10 @@ class Game {
     this.inventory = this.startingInventory();
     this.ui.hideFail();
     this.refreshShopOffers();
+    if (this._dropEndTimer) {
+      clearTimeout(this._dropEndTimer);
+      this._dropEndTimer = null;
+    }
     this.openBarDraft(
       message ||
         `초기화됨 — 일반 막대 ${CONFIG.startingNormalBars}개. 막대 하나를 고르세요.`
@@ -2304,6 +2333,11 @@ class Game {
     this.checkStuckBalls();
 
     if (this.phase !== 'run') return;
+
+    // 센서 효과가 아직 남아 있으면 먼저 처리 (복제 등으로 공이 생길 수 있음)
+    if (this.pendingEffects.length > 0) {
+      this.processPendingEffects();
+    }
 
     for (const ball of [...this.balls.balls]) {
       const p = ball.body.position;

@@ -164,6 +164,8 @@ const CONFIG = {
   ringLifeMs: 470,
   spawnFlashMs: 200,
   invalidFlashMs: 400,
+  /** 마지막 공 종료 후 막대 고르기/클리어까지 잠깐 대기 (점수 연출) */
+  dropEndDelayMs: 550,
 };
 
 /** 점수·목표 등 게임 수치는 항상 반올림 정수로 취급 */
