@@ -47,6 +47,7 @@ class Game {
     this.inventory = this.startingInventory();
     this.draftOffers = [];                  // 막대: [{type,count}, ...] / 효과: [{id,label,desc}, ...]
     this.ownedEffects = [];                 // 라운드 클리어로 고른 유물
+    this.sharedScoreBarHits = 0;            // 점수 나선 유물 — 모든 점수 막대·공이 공유
     this.sinkBonusZone = null;              // { x0, x1, mult } | null
     this.recycleUsesLeft = 0;               // 재사용 남은 횟수 (라운드당)
 
@@ -112,10 +113,10 @@ class Game {
 
   scoreBarAmount(ball) {
     const base = CONFIG.effectBalance.scoreBarBase || 3;
-    if (!this.hasEffect('score_boost') || !ball) return base;
-    const hits = ball.scoreBarHits || 0;
+    if (!this.hasEffect('score_boost')) return base;
+    const hits = this.sharedScoreBarHits || 0;
     const amount = base * Math.pow(CONFIG.effectBalance.scoreBarEscalate, hits);
-    ball.scoreBarHits = hits + 1;
+    this.sharedScoreBarHits = hits + 1;
     return gameInt(amount);
   }
 
@@ -992,6 +993,7 @@ class Game {
     this.roundNumber = 1;
     this.dropIndex = 1;
     this.ownedEffects = [];
+    this.sharedScoreBarHits = 0;
     this.sinkBonusZone = null;
     this.recycleUsesLeft = 0;
     this.selectedBar = null;

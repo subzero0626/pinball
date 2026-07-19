@@ -38,8 +38,6 @@ class BallManager {
       lastSpringAt: opts.lastSpringAt || 0,
       isClone: opts.isClone || false,
       activeSensors: new Set(opts.activeSensors || []),
-      // 점수 증강: 이 공이 점수 막대를 통과한 횟수
-      scoreBarHits: opts.scoreBarHits || 0,
       stuckContacts: new Set(),
       lastContactScoreAt: 0,
       lastDirX: opts.lastDirX || 0,
@@ -104,7 +102,6 @@ class BallManager {
           lastSpringAt: ball.lastSpringAt || 0,
           isClone: true,
           activeSensors: ball.activeSensors,
-          scoreBarHits: ball.scoreBarHits || 0,
           lastDirX: ball.lastDirX || 0,
           velocity: { x: vel.x, y: vel.y },
         }
