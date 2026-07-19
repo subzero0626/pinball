@@ -18,7 +18,7 @@ class Game {
     this.bars = new BarManager(this.world, this.board, this);
     this.balls = new BallManager(this.world, this);
 
-    this.phase = 'draft';                   // 'draft' | 'effect' | 'fail' | 'edit' | 'run'
+    this.phase = 'title';                   // 'title' | 'boot' | 'draft' | 'effect' | 'fail' | 'edit' | 'run' | 'drop_end'
     this.totalScore = 0;
     this.roundScore = 0;                    // 이번 라운드 드롭 점수 합
     this.dropScore = 0;                     // 현재 드롭 점수
@@ -76,11 +76,28 @@ class Game {
     this._physAcc = 0;
 
     this.refreshShopOffers();
-    this.openBarDraft(
-      `일반 막대 ${CONFIG.startingNormalBars}개를 받았습니다. 막대 하나를 고르세요.`
-    );
+    // 타이틀 화면에서 입장할 때까지 드래프트는 열지 않음
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
+  }
+
+  /** 메인에서 본 게임 시작 — 0.2초 뒤 막대 고르기 (그동안 드롭 시작 불가) */
+  beginFromTitle() {
+    if (this.phase !== 'title') return;
+    this.phase = 'boot';
+    this.ui.setMessage('준비 중…');
+    this.ui.refresh();
+    if (this._bootTimer) {
+      clearTimeout(this._bootTimer);
+      this._bootTimer = null;
+    }
+    this._bootTimer = setTimeout(() => {
+      this._bootTimer = null;
+      if (this.phase !== 'boot') return;
+      this.openBarDraft(
+        `일반 막대 ${CONFIG.startingNormalBars}개를 받았습니다. 막대 하나를 고르세요.`
+      );
+    }, 200);
   }
 
   /** 인벤에 넣을 수 있는 막대 키 (상점 전용 제외) */
@@ -1570,6 +1587,10 @@ class Game {
       clearTimeout(this._dropEndTimer);
       this._dropEndTimer = null;
     }
+    if (this._bootTimer) {
+      clearTimeout(this._bootTimer);
+      this._bootTimer = null;
+    }
     this.openBarDraft(
       message ||
         `초기화됨 — 일반 막대 ${CONFIG.startingNormalBars}개. 막대 하나를 고르세요.`
@@ -2510,4 +2531,5 @@ window.addEventListener('DOMContentLoaded', () => {
     return;
   }
   window.game = new Game(document.getElementById('board'));
+  window.titleScreen = new TitleScreen(window.game);
 });

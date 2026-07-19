@@ -32,10 +32,22 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260720o" />
+  <link rel="stylesheet" href="style.css?v=20260720ac" />
 </head>
 <body class="min-h-screen font-note text-ink antialiased">
   <div class="desk-bg fixed inset-0 -z-10" aria-hidden="true"></div>
+
+  <!-- 메인 화면 -->
+  <div id="titleScreen" class="title-screen" aria-label="메인 화면">
+    <div id="titleHome" class="title-home">
+      <p class="title-eyebrow font-sketch">notebook prototype</p>
+      <h1 class="title-brand font-sketch">PINBALL</h1>
+      <div class="title-rule" aria-hidden="true"></div>
+      <button id="btnTitlePlay" class="action primary title-play" type="button">게임 시작</button>
+      <p class="title-hint font-sketch">막대를 모아 경로를 만들고, 점수를 내세요</p>
+    </div>
+  </div>
+
   <div id="ballScoreTip" class="ball-score-tip" hidden aria-hidden="true">
     <span class="formula"></span>
     <span class="total"></span>
@@ -197,14 +209,15 @@
     </div>
   </div>
 
-  <script src="matter.min.js?v=20260720o"></script>
-  <script src="config.js?v=20260720w"></script>
-  <script src="board.js?v=20260720o"></script>
-  <script src="bars.js?v=20260720o"></script>
-  <script src="balls.js?v=20260720u"></script>
-  <script src="renderer.js?v=20260720w"></script>
-  <script src="ui.js?v=20260720o"></script>
-  <script src="game.js?v=20260720w"></script>
+  <script src="matter.min.js?v=20260720x"></script>
+  <script src="config.js?v=20260720af"></script>
+  <script src="board.js?v=20260720x"></script>
+  <script src="bars.js?v=20260720x"></script>
+  <script src="balls.js?v=20260720x"></script>
+  <script src="renderer.js?v=20260720x"></script>
+  <script src="ui.js?v=20260720x"></script>
+  <script src="game.js?v=20260720ag"></script>
+  <script src="title.js?v=20260720ab"></script>
   <script>
     // 스케치 지터 — 매 로드마다 랜덤 (이전 대비 강도 80%)
     (function sketchJitter() {

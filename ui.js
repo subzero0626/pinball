@@ -697,6 +697,7 @@ class UI {
   refresh() {
     const g = this.game;
     const editing = g.phase === 'edit';
+    if (g.phase === 'title') return;
 
     this.el.hudRound.textContent = String(g.roundNumber);
 
