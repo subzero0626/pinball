@@ -269,22 +269,25 @@ class Renderer {
 
       if (this.game.phase === 'edit' && this.game.isPegLocked(peg)) {
         ctx.save();
-        const size = 18;
         ctx.translate(peg.x, peg.y);
-        ctx.scale(size / 24, size / 24);
-        ctx.translate(-12, -12);
-        const path = new Path2D(
-          (typeof RELIC_ICON_PATHS !== 'undefined' && RELIC_ICON_PATHS.lock) ||
-            'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z'
-        );
+        const red = '#c45c5c';
+        // 고리
+        ctx.beginPath();
+        ctx.arc(0, -3.2, 4.2, Math.PI * 0.95, Math.PI * 0.05, false);
+        ctx.strokeStyle = red;
+        ctx.lineWidth = 2.6;
         ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 2.4;
-        ctx.strokeStyle = '#3d3420';
-        ctx.stroke(path);
-        ctx.lineWidth = 1.6;
-        ctx.strokeStyle = '#6b5410';
-        ctx.stroke(path);
+        ctx.stroke();
+        // 몸통 (단색)
+        ctx.fillStyle = red;
+        this.roundRect(ctx, -5.5, -1.2, 11, 9.5, 1.8);
+        ctx.fill();
+        // 열쇠구멍
+        ctx.fillStyle = '#f3efe6';
+        ctx.beginPath();
+        ctx.arc(0, 2.2, 1.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(-0.7, 2.2, 1.4, 3.2);
         ctx.restore();
       }
     }
@@ -329,21 +332,27 @@ class Renderer {
       }
       ctx.restore();
 
-      // 발사 전만 노란 화살 아이콘 (사용 후 숨김)
-      if (spring.spent) continue;
-
+      // 발사 방향 노란 화살 (아이콘)
       ctx.save();
       ctx.translate(spring.x, spring.y);
       ctx.rotate(launchRot);
-      const iconX = T / 2 + 12;
-      ctx.font = 'bold 20px "Segoe UI Symbol", "Apple Color Emoji", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.lineWidth = 3;
+      const iconX = T / 2 + 11;
+      const arrowSize = 18;
+      ctx.translate(iconX, 0);
+      ctx.scale(arrowSize / 24, arrowSize / 24);
+      ctx.translate(-12, -12);
+      const arrowPath = new Path2D(
+        (typeof RELIC_ICON_PATHS !== 'undefined' && RELIC_ICON_PATHS.arrowRight) ||
+          'M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3'
+      );
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 3.2;
       ctx.strokeStyle = '#2a2622';
-      ctx.fillStyle = '#e6b422';
-      ctx.strokeText('➤', iconX, 0);
-      ctx.fillText('➤', iconX, 0);
+      ctx.stroke(arrowPath);
+      ctx.lineWidth = 2.1;
+      ctx.strokeStyle = '#e6b422';
+      ctx.stroke(arrowPath);
       ctx.restore();
     }
   }

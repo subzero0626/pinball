@@ -7,7 +7,7 @@
  * 같은 센서 안에서 효과가 여러 번 발동하는 것을 막는다.
  * 점수/배수/복제는 재진입 시 무제한. 워프는 공당 1회.
  * 불완전 워프(chaos)는 hasWarped 와 무관.
- * 스프링은 스프링당 1회 발사 후 일반 막대(워프해도 spent 유지). 워프한 공도 미사용 스프링은 발사.
+ * 스프링은 공마다 스프링당 1회 발사 후 일반 막대. 워프한 공도 미사용 스프링은 발사.
  * ========================================================================= */
 
 class BallManager {
@@ -45,9 +45,10 @@ class BallManager {
       body,
       score,
       scoreFormula: opts.scoreFormula != null ? String(opts.scoreFormula) : String(score),
-      // hasWarped: 워프는 공당 1회. 스프링은 lastSpringAt 쿨다운(워프해도 유지)
+      // hasWarped: 워프는 공당 1회. usedSpringIds: 스프링은 공·스프링당 1회
       hasWarped: opts.hasWarped || false,
       lastSpringAt: opts.lastSpringAt || 0,
+      usedSpringIds: new Set(opts.usedSpringIds || []),
       isClone: opts.isClone || false,
       isMirror: opts.isMirror || false,
       isGlass: opts.isGlass || false,
@@ -166,7 +167,7 @@ class BallManager {
     Matter.Body.setAngularVelocity(ball.body, 0);
 
     ball.hasWarped = true;
-    // 특수 막대만 재통과 가능. 스프링 spent/쿨다운은 공·스프링 모두 초기화하지 않음
+    // 특수 막대만 재통과 가능. 스프링 사용 기록(usedSpringIds)은 유지
     // (워프한 공도 아직 안 쓴 스프링은 발사됨)
     ball.activeSensors.clear();
 

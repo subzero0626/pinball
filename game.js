@@ -503,21 +503,11 @@ class Game {
 
   openEffectDraft(message) {
     this.onRoundCleared();
-    this.generateEffectDraftOffers();
-    if (this.draftOffers.length === 0) {
-      this.advanceAfterRoundClear(
-        `라운드 클리어! +${CONFIG.shop.roundGold}G. 모든 유물을 모았습니다. 다음 라운드를 준비하세요.`
-      );
-      return;
-    }
-    this.phase = 'effect';
-    this.selectedBar = null;
-    this.selectedSpring = null;
-    this.dragging = null;
-    this.ui.showEffectDraft(this.draftOffers);
-    this.ui.setMessage(
+    this.ui.hideDraft();
+    this.advanceAfterRoundClear(
       message ||
-        `라운드 클리어! +${CONFIG.shop.roundGold}G. 유물을 고르세요.`
+        (() =>
+          `라운드 클리어! +${CONFIG.shop.roundGold}G. 라운드 ${this.roundNumber} — 목표 ${this.getTargetScore()}점. 상점에서 준비하세요.`)
     );
   }
 
@@ -609,7 +599,6 @@ class Game {
       x: pos.x,
       y: pos.y,
       angleDeg: 270, // 기본: 위쪽 (y↓ 좌표)
-      spent: false,  // false: 다음 충돌에서 발사 / true: 일반 막대
       body: null,
     };
     spring.body = this.makeSpringBody(spring);
@@ -714,9 +703,9 @@ class Game {
         const bar = other.gameBar || null;
         const spring = other.gameSpring || null;
 
-        // 맵 스프링 — 고체 막대. 미사용 시 1회 발사, 이후 일반 막대 충돌
+        // 맵 스프링 — 고체 막대. 공마다 1회 발사, 이후 그 공에게는 일반 막대
         if (spring) {
-          if (!spring.spent) {
+          if (!ball.usedSpringIds?.has(spring.id)) {
             this.pendingSpringBoosts.push({
               ballId: ball.id,
               springId: spring.id,
@@ -1275,10 +1264,6 @@ class Game {
     this.pendingPegJitters = [];
     this.snapLaunchToSlot();
 
-    for (const spring of this.springs) {
-      spring.spent = false;
-    }
-
     const startScore = this.ballStartScore();
     this.balls.createBall(this.launchX, CONFIG.launchY, {
       score: startScore,
@@ -1314,7 +1299,7 @@ class Game {
     if (lastDrop) {
       if (this.roundScore >= target) {
         this.openEffectDraft(
-          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! +${CONFIG.shop.roundGold}G · 유물을 고르세요.`
+          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! +${CONFIG.shop.roundGold}G. 상점을 이용하세요.`
         );
       } else {
         const failedSum = this.roundScore;
@@ -1655,7 +1640,7 @@ class Game {
     return { removed, skipped };
   }
 
-  /** 스프링 부스트 — 스프링당 1회 발사 후 spent(이후 일반 막대 튕김). 워프해도 spent 유지 */
+  /** 스프링 부스트 — 공마다 스프링당 1회 발사. 이후 그 공에게는 일반 막대 */
   processPendingSpringBoosts() {
     if (this.pendingSpringBoosts.length === 0) return;
     const queue = this.pendingSpringBoosts;
@@ -1667,14 +1652,17 @@ class Game {
 
     for (const item of queue) {
       const spring = this.springs.find((s) => s.id === item.springId);
-      if (!spring || spring.spent) continue;
-      if (seen.has(spring.id)) continue;
+      if (!spring) continue;
 
       const ball = this.balls.balls.find((b) => b.id === item.ballId);
       if (!ball || !ball.body) continue;
+      if (!ball.usedSpringIds) ball.usedSpringIds = new Set();
+      if (ball.usedSpringIds.has(spring.id)) continue;
 
-      seen.add(spring.id);
-      spring.spent = true;
+      const key = `${spring.id}:${ball.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ball.usedSpringIds.add(spring.id);
 
       const recorded = Math.hypot(item.preVx, item.preVy);
       const baseSpeed = Math.max(
