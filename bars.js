@@ -250,7 +250,7 @@ class BarManager {
     if (snapped === bar.angleDeg) return true;
 
     if (!this.isPlacementValid(bar, snapped)) {
-      bar.invalidFlash = 24;          // 붉게 깜빡이고 이전 각도로 되돌린다
+      bar.invalidFlash = CONFIG.invalidFlashMs || 400;
       return false;
     }
 
@@ -348,9 +348,11 @@ class BarManager {
     }
   }
 
-  tick() {
+  tick(dtMs = CONFIG.fixedDtMs || 1000 / 60) {
     for (const bar of this.bars) {
-      if (bar.invalidFlash > 0) bar.invalidFlash--;
+      if (bar.invalidFlash > 0) {
+        bar.invalidFlash = Math.max(0, bar.invalidFlash - dtMs);
+      }
     }
   }
 }

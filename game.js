@@ -57,6 +57,9 @@ class Game {
     this.bindCollisions();
     this.bindKeyboard();
 
+    this._prevNow = null;
+    this._physAcc = 0;
+
     this.openBarDraft(
       `일반 막대 ${CONFIG.startingNormalBars}개를 받았습니다. 막대 하나를 고르세요.`
     );
@@ -1570,15 +1573,17 @@ class Game {
    *  연출
    * ------------------------------------------------------------------ */
   addEffect(x, y, text, color) {
-    this.effects.push({ kind: 'text', x, y, text, color, life: CONFIG.effectLife, maxLife: CONFIG.effectLife });
+    const life = CONFIG.effectLifeMs || 750;
+    this.effects.push({ kind: 'text', x, y, text, color, life, maxLife: life });
   }
 
   addRing(x, y, color) {
-    this.effects.push({ kind: 'ring', x, y, color, life: 28, maxLife: 28 });
+    const life = CONFIG.ringLifeMs || 470;
+    this.effects.push({ kind: 'ring', x, y, color, life, maxLife: life });
   }
 
-  tickEffects() {
-    for (const fx of this.effects) fx.life--;
+  tickEffects(dtMs) {
+    for (const fx of this.effects) fx.life -= dtMs;
     this.effects = this.effects.filter((fx) => fx.life > 0);
   }
 
@@ -1629,51 +1634,72 @@ class Game {
   }
 
   /* ------------------------------------------------------------------ *
-   *  메인 루프
+   *  메인 루프 — 물리/연출은 고정 스텝, 그리기만 모니터 주사율
    * ------------------------------------------------------------------ */
-  loop() {
+  loop(now) {
+    if (this._prevNow == null) this._prevNow = now;
+    let dt = now - this._prevNow;
+    this._prevNow = now;
+    if (dt < 0) dt = 0;
+    if (dt > 250) dt = 250; // 탭 복귀 등 큰 공백은 잘라 냄
+
+    const step = CONFIG.fixedDtMs || 1000 / 60;
+    const maxSteps = CONFIG.maxPhysSteps || 5;
+
     if (this.phase === 'run') {
-      // 충돌 판정용 — 이번 프레임 물리 업데이트 직전 속도
-      for (const ball of this.balls.balls) {
-        ball.preVx = ball.body.velocity.x;
-        ball.preVy = ball.body.velocity.y;
-        if (Math.abs(ball.preVx) >= CONFIG.lastDirMinSpeed) {
-          ball.lastDirX = Math.sign(ball.preVx);
-        }
+      this._physAcc += dt;
+      let steps = 0;
+      while (this._physAcc >= step && steps < maxSteps && this.phase === 'run') {
+        this.fixedUpdate(step);
+        this._physAcc -= step;
+        steps++;
       }
-
-      Matter.Engine.update(this.engine, 1000 / 60);
-      this.processPendingEffects();
-      this.processPendingDeflects();
-      this.processPendingFlatRolls();
-      this.processPendingPegJitters();
-      this.processPendingSpringBoosts();
-      this.balls.clampSpeeds();
-      this.checkStuckBalls();
-      if (this.phase !== 'run') {
-        // 정지 실패로 드롭이 이미 종료됨
-      } else {
-        // 종료 구역 도착 판정
-        for (const ball of [...this.balls.balls]) {
-          const p = ball.body.position;
-          if (p.y > CONFIG.sinkY) {
-            this.sinkBall(ball);
-          } else if (p.y > CONFIG.boardHeight + 200 || p.x < -100 || p.x > CONFIG.boardWidth + 100) {
-            this.balls.removeBall(ball);
-          }
-        }
-
-        if (this.balls.balls.length === 0) {
-          this.endDrop();
-        }
-      }
+      if (steps >= maxSteps) this._physAcc = 0;
+    } else {
+      this._physAcc = 0;
     }
 
-    this.bars.tick();
-    this.tickEffects();
+    this.bars.tick(dt);
+    this.balls.tickVisuals(dt);
+    this.tickEffects(dt);
     this.renderer.draw();
     this.ui.refresh();
     requestAnimationFrame(this.loop);
+  }
+
+  /** 고정 시간 스텝 1회 — 주사율과 무관하게 같은 속도로 진행 */
+  fixedUpdate(dtMs) {
+    for (const ball of this.balls.balls) {
+      ball.preVx = ball.body.velocity.x;
+      ball.preVy = ball.body.velocity.y;
+      if (Math.abs(ball.preVx) >= CONFIG.lastDirMinSpeed) {
+        ball.lastDirX = Math.sign(ball.preVx);
+      }
+    }
+
+    Matter.Engine.update(this.engine, dtMs);
+    this.processPendingEffects();
+    this.processPendingDeflects();
+    this.processPendingFlatRolls();
+    this.processPendingPegJitters();
+    this.processPendingSpringBoosts();
+    this.balls.clampSpeeds();
+    this.checkStuckBalls();
+
+    if (this.phase !== 'run') return;
+
+    for (const ball of [...this.balls.balls]) {
+      const p = ball.body.position;
+      if (p.y > CONFIG.sinkY) {
+        this.sinkBall(ball);
+      } else if (p.y > CONFIG.boardHeight + 200 || p.x < -100 || p.x > CONFIG.boardWidth + 100) {
+        this.balls.removeBall(ball);
+      }
+    }
+
+    if (this.balls.balls.length === 0) {
+      this.endDrop();
+    }
   }
 }
 

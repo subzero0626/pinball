@@ -44,7 +44,7 @@ class BallManager {
       lastDirX: opts.lastDirX || 0,
       stuckSince: 0,
       stuckWarned: false,
-      spawnFlash: 12,
+      spawnFlash: opts.spawnFlash !== undefined ? opts.spawnFlash : (CONFIG.spawnFlashMs || 200),
       preVx: 0,
       preVy: 0,
     };
@@ -173,7 +173,15 @@ class BallManager {
         const k = cap / speed;
         Matter.Body.setVelocity(ball.body, { x: v.x * k, y: v.y * k });
       }
-      if (ball.spawnFlash > 0) ball.spawnFlash--;
+    }
+  }
+
+  /** 연출 타이머 (ms) — 주사율과 무관 */
+  tickVisuals(dtMs) {
+    for (const ball of this.balls) {
+      if (ball.spawnFlash > 0) {
+        ball.spawnFlash = Math.max(0, ball.spawnFlash - dtMs);
+      }
     }
   }
 

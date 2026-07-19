@@ -21,6 +21,9 @@ const CONFIG = {
   ballRadius: 10,
   pegRadius: 7,
   timeScale: 0.9,       // 전체 진행 속도 (1 = 기본 속도, 낮을수록 슬로모션)
+  /* 물리·연출은 모니터 주사율과 무관하게 고정 60Hz 스텝으로 진행 */
+  fixedDtMs: 1000 / 60,
+  maxPhysSteps: 5,      // 한 프레임당 최대 물리 스텝 (탭 복귀 폭주 방지)
   gravity: 0.3,         // 작게 → 완만하게 가속
   restitution: 0.9,     // 페그에 부딪히면 확실히 튕기도록
   friction: 0.02,
@@ -83,7 +86,7 @@ const CONFIG = {
 
   /* --- 라운드 / 드롭 --- */
   dropsPerRound: 3,
-  roundTargets: [15, 80, 242, 660, 1760, 4500, 13000, 35000, 95000, 250000],
+  roundTargets: [12, 60, 242, 660, 1760, 4500, 13000, 35000, 95000, 250000],
 
   /* --- 유물 / 특수 밸런스 --- */
   effectBalance: {
@@ -109,8 +112,11 @@ const CONFIG = {
     springAngleStep: 15,
   },
 
-  /* --- 연출 --- */
-  effectLife: 45,       // 팝업 효과 지속 프레임
+  /* --- 연출 (지속 시간 ms — 주사율 무관) --- */
+  effectLifeMs: 750,
+  ringLifeMs: 470,
+  spawnFlashMs: 200,
+  invalidFlashMs: 400,
 };
 
 /** 점수·목표 등 게임 수치는 항상 반올림 정수로 취급 */
