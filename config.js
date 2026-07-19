@@ -106,10 +106,11 @@ const CONFIG = {
     recycleUsesPerRound: 3,
     pegBounceMult: 1.3,
     contactScoreCooldownMs: 100,
-    springBounceMult: 4,
+    springBounceMult: 3,
     springMaxSpeed: 18,
     springRadius: 14,
     springAngleStep: 15,
+    springCooldownMs: 100,
   },
 
   /* --- 연출 (지속 시간 ms — 주사율 무관) --- */
@@ -186,7 +187,7 @@ const EFFECT_TYPES = [
   {
     id: 'map_spring',
     label: '도약 태엽',
-    desc: '맵에 스프링이 생깁니다. 클릭 후 Q/E로 방향을 바꿀 수 있습니다. 공당 1회, 튕기는 힘이 4배가 됩니다.',
+    desc: '맵에 스프링이 생깁니다. 클릭 후 Q/E로 방향을 바꿀 수 있습니다. 0.1초 쿨다운, 튕기는 힘이 3배가 됩니다. 워프해도 쿨다운은 초기화되지 않습니다.',
     icon: 'arrowPath',
   },
   {

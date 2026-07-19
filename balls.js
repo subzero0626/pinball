@@ -5,7 +5,7 @@
  *   { id, score, hasWarped, activeSensors, isClone }
  * activeSensors 는 "현재 겹쳐 있는 특수 막대 id" 집합으로,
  * 같은 센서 안에서 효과가 여러 번 발동하는 것을 막는다.
- * 점수/배수/복제는 재진입 시 무제한. 워프·스프링은 공당 1회.
+ * 점수/배수/복제는 재진입 시 무제한. 워프는 공당 1회. 스프링은 0.1초 쿨다운(워프해도 유지).
  * ========================================================================= */
 
 class BallManager {
@@ -32,9 +32,9 @@ class BallManager {
       id: this.nextId++,
       body,
       score: gameInt(opts.score !== undefined ? opts.score : 1),
-      // hasWarped / hasSprung: 워프·스프링은 공당 1회
+      // hasWarped: 워프는 공당 1회. 스프링은 lastSpringAt 쿨다운(워프해도 유지)
       hasWarped: opts.hasWarped || false,
-      hasSprung: opts.hasSprung || false,
+      lastSpringAt: opts.lastSpringAt || 0,
       isClone: opts.isClone || false,
       activeSensors: new Set(opts.activeSensors || []),
       // 점수 증강: 이 공이 점수 막대를 통과한 횟수
@@ -100,7 +100,7 @@ class BallManager {
         {
           score: gameInt(ball.score),
           hasWarped: ball.hasWarped,
-          hasSprung: ball.hasSprung,
+          lastSpringAt: ball.lastSpringAt || 0,
           isClone: true,
           activeSensors: ball.activeSensors,
           scoreBarHits: ball.scoreBarHits || 0,
@@ -142,6 +142,7 @@ class BallManager {
     Matter.Body.setAngularVelocity(ball.body, 0);
 
     ball.hasWarped = true;
+    // 특수 막대만 재통과 가능. 스프링 쿨다운(lastSpringAt)은 초기화하지 않음
     ball.activeSensors.clear();
 
     this.game.addRing(from.x, from.y, BAR_TYPES.warp.glow);

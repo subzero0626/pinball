@@ -439,15 +439,20 @@ class Game {
         const bar = other.gameBar || null;
         const spring = other.gameSpring || null;
 
-        // 맵 스프링 — 공당 1회, 입사 속력 × springBounceMult 로 발사
+        // 맵 스프링 — 0.1초 쿨다운, 입사 속력(일반 상한 기준)×mult
         if (spring) {
-          if (ball.hasSprung) continue;
+          const now = performance.now();
+          const cd = CONFIG.effectBalance.springCooldownMs || 100;
+          if (ball.lastSpringAt && now - ball.lastSpringAt < cd) continue;
+          // 같은 프레임 연속 판정 막기 — 워프해도 이 시각은 유지
+          ball.lastSpringAt = now;
           this.pendingSpringBoosts.push({
             ballId: ball.id,
             springId: spring.id,
             preVx: ballBody.velocity.x,
             preVy: ballBody.velocity.y,
             angleDeg: spring.angleDeg,
+            at: now,
           });
           continue;
         }
@@ -1140,33 +1145,39 @@ class Game {
     return hit.length;
   }
 
-  /** 스프링 부스트 — 입사 속력 × springBounceMult, 유저 설정 방향 */
+  /** 스프링 부스트 — 일반 속력 상한 기준 × springBounceMult (이미 부스트된 속력으로 재증폭 방지) */
   processPendingSpringBoosts() {
     if (this.pendingSpringBoosts.length === 0) return;
     const queue = this.pendingSpringBoosts;
     this.pendingSpringBoosts = [];
     const seen = new Set();
-    const mult = CONFIG.effectBalance.springBounceMult || 4;
+    const mult = CONFIG.effectBalance.springBounceMult || 3;
     const cap = CONFIG.effectBalance.springMaxSpeed || 18;
+    const cd = CONFIG.effectBalance.springCooldownMs || 100;
+    const now = performance.now();
 
     for (const item of queue) {
       const key = `${item.ballId}:${item.springId}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const ball = this.balls.balls.find((b) => b.id === item.ballId);
-      if (!ball || !ball.body || ball.hasSprung) continue;
+      if (!ball || !ball.body) continue;
+      if (ball.lastSpringAt && now - ball.lastSpringAt < cd) continue;
 
-      const preSpeed = Math.hypot(item.preVx, item.preVy);
-      if (preSpeed < CONFIG.deflectMinSpeed) continue;
+      const recorded = Math.hypot(item.preVx, item.preVy);
+      const current = Math.hypot(ball.body.velocity.x, ball.body.velocity.y);
+      // 이미 스프링/고속으로 뛴 속력을 다시 ×하면 폭주 → 일반 상한으로만 계산
+      const baseSpeed = Math.min(recorded, current, CONFIG.maxBallSpeed);
+      if (baseSpeed < CONFIG.deflectMinSpeed) continue;
 
       const rad = (item.angleDeg * Math.PI) / 180;
-      const outSpeed = Math.min(preSpeed * mult, cap);
+      const outSpeed = Math.min(baseSpeed * mult, cap);
       Matter.Body.setVelocity(ball.body, {
         x: Math.cos(rad) * outSpeed,
         y: Math.sin(rad) * outSpeed,
       });
-      ball.hasSprung = true;
-      ball.springBoostUntil = performance.now() + 450;
+      ball.lastSpringAt = now;
+      ball.springBoostUntil = now + 450;
       this.addRing(
         ball.body.position.x,
         ball.body.position.y,

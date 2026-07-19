@@ -266,31 +266,44 @@ class Renderer {
       }
       ctx.restore();
 
-      // 발사 방향 짧은 화살 (막대 중앙에서)
+      // 발사 방향 화살 (노란색, 굵게)
       ctx.save();
       ctx.translate(spring.x, spring.y);
-      const len = T / 2 + 12;
+      const len = T / 2 + 14;
+      const arrowYellow = '#e6b422';
+      const arrowEdge = '#2a2622';
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(Math.cos(launchRot) * len, Math.sin(launchRot) * len);
-      ctx.strokeStyle = '#2a2622';
-      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = arrowEdge;
+      ctx.lineWidth = 5.5;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(launchRot) * len, Math.sin(launchRot) * len);
+      ctx.strokeStyle = arrowYellow;
+      ctx.lineWidth = 3.6;
       ctx.stroke();
       const tipX = Math.cos(launchRot) * len;
       const tipY = Math.sin(launchRot) * len;
+      const tipSize = 9;
       ctx.beginPath();
       ctx.moveTo(tipX, tipY);
       ctx.lineTo(
-        tipX - Math.cos(launchRot + 2.6) * 6,
-        tipY - Math.sin(launchRot + 2.6) * 6
+        tipX - Math.cos(launchRot + 2.55) * tipSize,
+        tipY - Math.sin(launchRot + 2.55) * tipSize
       );
       ctx.lineTo(
-        tipX - Math.cos(launchRot - 2.6) * 6,
-        tipY - Math.sin(launchRot - 2.6) * 6
+        tipX - Math.cos(launchRot - 2.55) * tipSize,
+        tipY - Math.sin(launchRot - 2.55) * tipSize
       );
       ctx.closePath();
-      ctx.fillStyle = '#2a2622';
+      ctx.fillStyle = arrowYellow;
+      ctx.strokeStyle = arrowEdge;
+      ctx.lineWidth = 1.4;
       ctx.fill();
+      ctx.stroke();
       ctx.restore();
     }
   }
