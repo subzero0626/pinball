@@ -266,44 +266,31 @@ class Renderer {
       }
       ctx.restore();
 
-      // 발사 전만 노란 화살 표시 (사용 후에는 일반 막대)
-      if (spring.spent) continue;
+      // 발사 전만 노란 화살 표시 (사용·전환 대기 후에는 일반 막대)
+      if (spring.spent || spring.pendingSolidify) continue;
 
       ctx.save();
       ctx.translate(spring.x, spring.y);
-      const len = T / 2 + 14;
-      const arrowYellow = '#e6b422';
-      const arrowEdge = '#2a2622';
+      ctx.rotate(launchRot);
+      // 오른쪽(+x) 향하는 일반 화살표 실루엣
+      const tip = T / 2 + 16;
+      const headLen = 11;
+      const headW = 7.5;
+      const shaftW = 2.8;
+      const shaftEnd = tip - headLen;
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(launchRot) * len, Math.sin(launchRot) * len);
-      ctx.strokeStyle = arrowEdge;
-      ctx.lineWidth = 5.5;
-      ctx.lineCap = 'round';
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(launchRot) * len, Math.sin(launchRot) * len);
-      ctx.strokeStyle = arrowYellow;
-      ctx.lineWidth = 3.6;
-      ctx.stroke();
-      const tipX = Math.cos(launchRot) * len;
-      const tipY = Math.sin(launchRot) * len;
-      const tipSize = 9;
-      ctx.beginPath();
-      ctx.moveTo(tipX, tipY);
-      ctx.lineTo(
-        tipX - Math.cos(launchRot + 2.55) * tipSize,
-        tipY - Math.sin(launchRot + 2.55) * tipSize
-      );
-      ctx.lineTo(
-        tipX - Math.cos(launchRot - 2.55) * tipSize,
-        tipY - Math.sin(launchRot - 2.55) * tipSize
-      );
+      ctx.moveTo(2, -shaftW);
+      ctx.lineTo(shaftEnd, -shaftW);
+      ctx.lineTo(shaftEnd, -headW);
+      ctx.lineTo(tip, 0);
+      ctx.lineTo(shaftEnd, headW);
+      ctx.lineTo(shaftEnd, shaftW);
+      ctx.lineTo(2, shaftW);
       ctx.closePath();
-      ctx.fillStyle = arrowYellow;
-      ctx.strokeStyle = arrowEdge;
-      ctx.lineWidth = 1.4;
+      ctx.fillStyle = '#e6b422';
+      ctx.strokeStyle = '#2a2622';
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = 'round';
       ctx.fill();
       ctx.stroke();
       ctx.restore();

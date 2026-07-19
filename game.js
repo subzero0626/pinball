@@ -345,7 +345,8 @@ class Game {
       x: pos.x,
       y: pos.y,
       angleDeg: 270, // 기본: 위쪽 (y↓ 좌표)
-      spent: false,  // true면 일반 막대처럼 물리 충돌
+      spent: false,           // true면 일반 막대 물리
+      pendingSolidify: false, // 발사 후 공이 빠져나가면 spent 전환
       body: null,
     };
     spring.body = this.makeSpringBody(spring);
@@ -376,10 +377,11 @@ class Game {
     return body;
   }
 
-  /** 한 번 발사 후 일반 막대처럼 물리 바디로 전환 */
+  /** 한 번 발사 후 일반 막대처럼 물리 바디로 전환 (공이 나간 뒤 호출) */
   solidifySpring(spring) {
     if (!spring || spring.spent) return;
     spring.spent = true;
+    spring.pendingSolidify = false;
     if (spring.body) {
       Matter.Composite.remove(this.world, spring.body);
       spring.body = null;
@@ -463,7 +465,8 @@ class Game {
         const bar = other.gameBar || null;
         const spring = other.gameSpring || null;
 
-        // 맵 스프링 — 미사용: 부스트 / 사용 후: 일반 막대 충돌
+        // 맵 스프링 — 미사용: 1회 발사 / 사용 후: 일반 막대 충돌
+        // (워프한 공도 미사용 스프링은 발사됨. spent만 워프해도 유지)
         if (spring) {
           if (spring.spent) {
             const obstacleKey = `spring:${spring.id}`;
@@ -496,16 +499,15 @@ class Game {
             continue;
           }
 
-          const now = performance.now();
-          const cd = CONFIG.effectBalance.springCooldownMs || 100;
-          if (ball.lastSpringAt && now - ball.lastSpringAt < cd) continue;
+          // 이미 발사 예약·전환 대기면 재발사 없음
+          if (spring.pendingSolidify) continue;
+
           this.pendingSpringBoosts.push({
             ballId: ball.id,
             springId: spring.id,
             preVx: ballBody.velocity.x,
             preVy: ballBody.velocity.y,
             angleDeg: spring.angleDeg,
-            at: now,
           });
           continue;
         }
@@ -574,14 +576,19 @@ class Game {
         const other = ballBody === pair.bodyA ? pair.bodyB : pair.bodyA;
         const ball = ballBody.gameBall;
         const bar = other.gameBar || null;
+        const spring = other.gameSpring || null;
 
         if (bar && BAR_TYPES[bar.type].sensor) {
           ball.activeSensors.delete(bar.id);
         }
+        // 발사 후 공이 스프링에서 벗어나면 그때 일반 막대로 전환 (겹친 채 고체화하면 발사가 막힘)
+        if (spring && spring.pendingSolidify) {
+          this.solidifySpring(spring);
+        }
         if (ball.stuckContacts) {
           if (other.gamePeg) ball.stuckContacts.delete(`peg:${other.gamePeg.id}`);
           if (bar) ball.stuckContacts.delete(`bar:${bar.id}`);
-          if (other.gameSpring) ball.stuckContacts.delete(`spring:${other.gameSpring.id}`);
+          if (spring) ball.stuckContacts.delete(`spring:${spring.id}`);
         }
       }
     });
@@ -1199,7 +1206,7 @@ class Game {
     return hit.length;
   }
 
-  /** 스프링 부스트 — 일반 속력 상한 기준 × springBounceMult, 성공 시 일반 막대로 전환 */
+  /** 스프링 부스트 — 스프링당 1회 발사 후(공이 나간 뒤) 일반 막대로 전환 */
   processPendingSpringBoosts() {
     if (this.pendingSpringBoosts.length === 0) return;
     const queue = this.pendingSpringBoosts;
@@ -1207,25 +1214,25 @@ class Game {
     const seen = new Set();
     const mult = CONFIG.effectBalance.springBounceMult || 3;
     const cap = CONFIG.effectBalance.springMaxSpeed || 18;
-    const cd = CONFIG.effectBalance.springCooldownMs || 100;
     const now = performance.now();
 
     for (const item of queue) {
-      const key = `${item.ballId}:${item.springId}`;
+      const key = item.springId;
       if (seen.has(key)) continue;
       seen.add(key);
-      const ball = this.balls.balls.find((b) => b.id === item.ballId);
-      if (!ball || !ball.body) continue;
-      if (ball.lastSpringAt && now - ball.lastSpringAt < cd) continue;
 
       const spring = this.springs.find((s) => s.id === item.springId);
-      if (!spring || spring.spent) continue;
+      if (!spring || spring.spent || spring.pendingSolidify) continue;
+
+      const ball = this.balls.balls.find((b) => b.id === item.ballId);
+      if (!ball || !ball.body) continue;
 
       const recorded = Math.hypot(item.preVx, item.preVy);
-      const current = Math.hypot(ball.body.velocity.x, ball.body.velocity.y);
-      // 이미 스프링/고속으로 뛴 속력을 다시 ×하면 폭주 → 일반 상한으로만 계산
-      const baseSpeed = Math.min(recorded, current, CONFIG.maxBallSpeed);
-      if (baseSpeed < CONFIG.deflectMinSpeed) continue;
+      // 입사 속력 기준(최소 launchSpeed 보장). 워프 직후처럼 느려도 튕김
+      const baseSpeed = Math.max(
+        Math.min(recorded, CONFIG.maxBallSpeed),
+        CONFIG.launchSpeed || 1.2
+      );
 
       const rad = (item.angleDeg * Math.PI) / 180;
       const outSpeed = Math.min(baseSpeed * mult, cap);
@@ -1233,14 +1240,25 @@ class Game {
         x: Math.cos(rad) * outSpeed,
         y: Math.sin(rad) * outSpeed,
       });
-      ball.lastSpringAt = now;
       ball.springBoostUntil = now + 450;
-      this.solidifySpring(spring);
+      // 즉시 고체화하지 않음 — 공이 센서에서 나간 뒤 solidify (collisionEnd)
+      spring.pendingSolidify = true;
+      spring.solidifyAfter = now + 500;
       this.addRing(
         ball.body.position.x,
         ball.body.position.y,
         '#c45c2a'
       );
+    }
+  }
+
+  /** collisionEnd 누락 대비 — 잠시 뒤 강제 일반 막대 전환 */
+  flushPendingSpringSolidify() {
+    const now = performance.now();
+    for (const spring of this.springs) {
+      if (spring.pendingSolidify && spring.solidifyAfter && now >= spring.solidifyAfter) {
+        this.solidifySpring(spring);
+      }
     }
   }
 
@@ -1752,6 +1770,7 @@ class Game {
     this.processPendingFlatRolls();
     this.processPendingPegJitters();
     this.processPendingSpringBoosts();
+    this.flushPendingSpringSolidify();
     this.balls.clampSpeeds();
     this.checkStuckBalls();
 
