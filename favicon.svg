@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
+  <!-- 공 3개 · 삼각형 -->
+  <circle cx="32" cy="20" r="11" fill="#c45c5c" stroke="#2a2622" stroke-width="2.5"/>
+  <circle cx="29" cy="17" r="2.5" fill="#f6f1e7" opacity="0.85"/>
+  <circle cx="18" cy="44" r="11" fill="#2f5d8c" stroke="#2a2622" stroke-width="2.5"/>
+  <circle cx="15" cy="41" r="2.5" fill="#f6f1e7" opacity="0.85"/>
+  <circle cx="46" cy="44" r="11" fill="#3d9a5c" stroke="#2a2622" stroke-width="2.5"/>
+  <circle cx="43" cy="41" r="2.5" fill="#f6f1e7" opacity="0.85"/>
+</svg>

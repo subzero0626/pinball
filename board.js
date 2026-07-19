@@ -158,9 +158,10 @@ class Board {
     return best;
   }
 
-  /** 워프 막대에서 위·아래 warpMaxRowRange 칸 이내인지 */
-  isWarpSpotReachable(bar, spot) {
+  /** 워프 막대에서 위·아래 warpMaxRowRange 칸 이내인지 (unlimited 시 거리 무시) */
+  isWarpSpotReachable(bar, spot, unlimited = false) {
     if (!bar || !spot) return false;
+    if (unlimited) return true;
     const peg = this.pegs.find((p) => p.id === bar.pegId);
     const range = CONFIG.warpMaxRowRange;
     if (peg) {
@@ -171,11 +172,11 @@ class Board {
   }
 
   /** 워프 도착 지점 중 클릭된 것 (bar가 있으면 도달 가능 범위만) */
-  warpSpotAt(x, y, tolerance = 14, bar = null) {
+  warpSpotAt(x, y, tolerance = 14, bar = null, unlimited = false) {
     let best = null;
     let bestDist = Infinity;
     for (const spot of this.warpSpots) {
-      if (bar && !this.isWarpSpotReachable(bar, spot)) continue;
+      if (bar && !this.isWarpSpotReachable(bar, spot, unlimited)) continue;
       const d = Math.hypot(spot.x - x, spot.y - y);
       if (d < tolerance && d < bestDist) {
         best = spot;

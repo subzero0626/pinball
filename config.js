@@ -84,11 +84,50 @@ const CONFIG = {
     { type: 'duplicate', count: 1 },
     { type: 'warp', count: 1 },
   ],
-  startingNormalBars: 3,
+  startingNormalBars: 2,
 
   /* --- 라운드 / 드롭 --- */
   dropsPerRound: 3,
   roundTargets: [12, 60, 242, 660, 1760, 4500, 13000, 35000, 95000, 250000],
+
+  /* --- 상점 --- */
+  shop: {
+    roundGold: 12,
+    rerollStartCost: 1,
+    sellNormal: 1,
+    sellSpecial: 2,
+    offerCount: 3,
+    barOfferChance: 0.22,
+    /** 유물 가격 분포: 9 / 10 / 11 */
+    relicPriceWeights: [
+      { price: 9, w: 20 },
+      { price: 10, w: 60 },
+      { price: 11, w: 20 },
+    ],
+    /** 상점 막대 가격 분포: 3 / 4 */
+    barPriceWeights: [
+      { price: 3, w: 30 },
+      { price: 4, w: 70 },
+    ],
+  },
+
+  /* --- 상점 전용 막대 밸런스 --- */
+  shopBars: {
+    swampScore: 4,
+    swampMaxSpeed: 0.45,
+    swampExitSpeed: 2.2,
+    gravityScore: 4,
+    gravityRestitutionScale: 0.6,
+    amplifyFirst: 3,
+    amplifyRest: 0.9,
+    gambleWinChance: 0.6,
+    gambleWinMult: 1.4,
+    gambleLoseMult: 0.8,
+    growthStart: 0.7,
+    growthPerDrop: 0.1,
+    glassMult: 2.4,
+    glassBreakChance: 0.5,
+  },
 
   /* --- 유물 / 특수 밸런스 --- */
   effectBalance: {
@@ -113,6 +152,11 @@ const CONFIG = {
     springRadius: 14,
     springAngleStep: 15,
     springCooldownMs: 100,
+    startScoreFlat: 4,
+    passBreakChance: 0.04,
+    mirrorMultiplyFactor: 1.5,
+    mirrorDuplicateChance: 0.5,
+    mirrorTripleChance: 0.075,
   },
 
   /* --- 연출 (지속 시간 ms — 주사율 무관) --- */
@@ -127,6 +171,20 @@ function gameInt(n) {
   return Math.round(Number(n));
 }
 
+/** [{price,w}, ...] 가중 랜덤 */
+function pickWeightedPrice(weights) {
+  const list = weights || [];
+  let total = 0;
+  for (const row of list) total += row.w || 0;
+  if (total <= 0) return list[0]?.price ?? 0;
+  let r = Math.random() * total;
+  for (const row of list) {
+    r -= row.w || 0;
+    if (r <= 0) return row.price;
+  }
+  return list[list.length - 1].price;
+}
+
 /** 막대 길이 */
 function barLengthFor(type, game) {
   return CONFIG.barLength;
@@ -136,17 +194,43 @@ function barLengthFor(type, game) {
 CONFIG.evenRowStartX = (CONFIG.boardWidth - (CONFIG.cols - 1) * CONFIG.colSpacing) / 2;
 CONFIG.oddRowStartX = CONFIG.evenRowStartX + CONFIG.colSpacing / 2;
 
-/* 막대 종류 정의 — 새로운 종류를 임의로 추가하지 않습니다. */
+/* 막대 종류 정의 */
 const BAR_TYPES = {
-  normal:    { key: 'normal',    label: '일반 막대',    icon: '',   sensor: false, color: '#6b6560', glow: '#8a847a' },
-  score:     { key: 'score',     label: '점수 막대',    icon: '+3', sensor: true,  color: '#2f7a4a', glow: '#4a9a64' },
-  multiply:  { key: 'multiply',  label: '배수 막대',    icon: '×2', sensor: true,  color: '#b8860b', glow: '#d4a017' },
-  duplicate: { key: 'duplicate', label: '복제 막대',    icon: '◎◎', sensor: true,  color: '#2f5d8c', glow: '#4a7eb0' },
-  warp:      { key: 'warp',      label: '워프 막대',    icon: '↯',  sensor: true,  color: '#6b4f9a', glow: '#8a6bb8' },
+  normal:     { key: 'normal',     label: '일반 막대',       icon: '',    sensor: false, color: '#6b6560', glow: '#8a847a' },
+  score:      { key: 'score',      label: '점수 막대',       icon: '+3',  sensor: true,  color: '#2f7a4a', glow: '#4a9a64' },
+  multiply:   { key: 'multiply',   label: '배수 막대',       icon: '×2',  sensor: true,  color: '#b8860b', glow: '#d4a017' },
+  duplicate:  { key: 'duplicate',  label: '복제 막대',       icon: '◎◎', sensor: true,  color: '#2f5d8c', glow: '#4a7eb0' },
+  warp:       { key: 'warp',       label: '워프 막대',       icon: '↯',   sensor: true,  color: '#6b4f9a', glow: '#8a6bb8' },
+  swamp:      { key: 'swamp',      label: '늪 막대',         icon: '≒',  sensor: true,  color: '#3d5c45', glow: '#5a7a62', shopOnly: true },
+  gravity:    { key: 'gravity',    label: '중력 막대',       icon: '↓',   sensor: false, color: '#4a453e', glow: '#6b6560', shopOnly: true },
+  amplify:    { key: 'amplify',    label: '증폭 막대',       icon: '×!',  sensor: true,  color: '#a33c2f', glow: '#c45c5c', shopOnly: true },
+  gamble:     { key: 'gamble',     label: '도박 막대',       icon: '?',   sensor: true,  color: '#8a5a2b', glow: '#b8860b', shopOnly: true },
+  chaos_warp: { key: 'chaos_warp', label: '불완전 워프 막대', icon: '↯?', sensor: true,  color: '#5a3d7a', glow: '#9b7bc4', shopOnly: true },
+  growth:     { key: 'growth',     label: '성장 막대',       icon: '↑×', sensor: true,  color: '#2f6b4a', glow: '#4a9a64', shopOnly: true },
+  glass:      { key: 'glass',      label: '유리 막대',       icon: '◇',  sensor: true,  color: '#5a8aaa', glow: '#7eb0c8', shopOnly: true },
+};
+
+/** 상점에서만 나오는 막대 키 */
+const SHOP_BAR_TYPES = Object.keys(BAR_TYPES).filter((k) => BAR_TYPES[k].shopOnly);
+
+const BAR_TIPS = {
+  normal: '공이 부딪히면 튕깁니다. 점수는 변하지 않습니다.',
+  score: '공이 지나가면 점수가 +3 됩니다.',
+  multiply: '공이 지나가면 점수가 ×2 됩니다.',
+  duplicate: '공이 지나가면 같은 점수의 공이 하나 더 생깁니다.',
+  warp: '공이 지나가면 지정한 위치로 이동합니다. (공당 1회)\n×를 눌러 도착지를 고르세요.',
+  swamp: '공이 닿으면 거의 멈추듯 느려지며 통과합니다.\n점수 +4. 막대를 벗어나면 다시 빨라집니다.',
+  gravity: '튕기는 힘이 40% 줄어듭니다.\n닿을 때 점수 +4.',
+  amplify: '드롭마다 이 막대를 처음 지나는 공만 ×3.\n그 다음 공부터는 ×0.9.',
+  gamble: '60% 확률로 ×1.4, 40% 확률로 ×0.8.',
+  chaos_warp: '공이 지나가면 보드 위 랜덤한 곳으로 이동합니다.\n일반 워프와 별개로 사용할 수 있습니다.',
+  growth: '구매 시점 ×0.7부터 시작.\n드롭이 끝날 때마다 ×가 0.1씩 커집니다.',
+  glass: '점수가 ×2.4가 되지만, 종료 구역에서 50% 확률로 파괴됩니다.\n유리화된 공은 반투명하게 보입니다.',
 };
 
 /** Heroicons(outline) path — Tailwind와 함께 쓰는 SVG 아이콘 */
 const RELIC_ICON_PATHS = {
+  lock: 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z',
   bolt: 'M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z',
   sparkles: 'M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z',
   users: 'M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z',
@@ -159,6 +243,9 @@ const RELIC_ICON_PATHS = {
   document: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z',
   shield: 'M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z',
   arrowPathRounded: 'M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3',
+  exclamationTriangle: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
+  arrowsRightLeft: 'M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5',
+  square2Stack: 'M16.5 8.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v8.25A2.25 2.25 0 006 16.5h2.25m8.25-8.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-7.5A2.25 2.25 0 018.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 00-2.25 2.25v6',
 };
 
 function relicIconSvg(iconKey, className = 'relic-icon-svg') {
@@ -171,61 +258,61 @@ const EFFECT_TYPES = [
   {
     id: 'multiply_boost',
     label: '폭주의 인장',
-    desc: '배수 막대가 ×2.3으로 강화됩니다.',
+    desc: '배수 막대가 ×2 → ×2.3으로 강해집니다.',
     icon: 'bolt',
   },
   {
     id: 'pass_stable',
     label: '고요한 궤도석',
-    desc: '특수 막대 통과 시 꺾임이 3~5°로 완화됩니다.',
+    desc: '특수 막대를 지날 때 방향이 조금만 꺾입니다. (3~5°)',
     icon: 'sparkles',
   },
   {
     id: 'duplicate_triple',
     label: '삼라분신패',
-    desc: '복제 막대가 15% 확률로 공을 3개로 만듭니다.',
+    desc: '복제 막대가 15% 확률로 공을 3개로 나눕니다.',
     icon: 'users',
   },
   {
     id: 'map_spring',
     label: '도약 태엽',
-    desc: '맵에 빨간 스프링 막대가 생깁니다. 한 번 튕기면(×3) 이후엔 일반 막대처럼 동작합니다. 워프해도 초기화되지 않습니다.',
+    desc: '맵에 빨간 스프링이 생깁니다.\n드롭마다 1회 ×3으로 발사한 뒤, 일반 막대처럼 동작합니다.',
     icon: 'arrowPath',
   },
   {
     id: 'peg_score',
     label: '못의 축복',
-    desc: '페그에 튕길 때 공 점수가 ×1.1이 됩니다.',
+    desc: '페그에 튕길 때 점수가 ×1.1이 됩니다.',
     icon: 'circleStack',
   },
   {
     id: 'peg_bounce',
     label: '강철 튕김쇠',
-    desc: '페그가 공을 더 강하게 튕깁니다.',
+    desc: '페그가 공을 더 세게 튕깁니다.',
     icon: 'handRaised',
   },
   {
     id: 'warp_mult',
     label: '균열 증폭석',
-    desc: '워프 통과 시 공 점수가 ×1.5가 됩니다.',
+    desc: '워프를 지날 때 점수가 ×1.5가 됩니다.\n또한 워프 도착지의 거리 제한이 사라집니다.',
     icon: 'paperAirplane',
   },
   {
     id: 'score_boost',
     label: '점수의 나선',
-    desc: '모든 점수 막대가 가산을 공유합니다. 드롭마다 3점부터 시작해, 통과할 때마다 ×1.5씩 커집니다.',
+    desc: '점수 막대가 가산을 공유합니다.\n드롭마다 3점부터 시작해, 지날 때마다 ×1.5씩 커집니다.',
     icon: 'chartBar',
   },
   {
     id: 'sink_bonus',
     label: '황금 심연',
-    desc: '종료 구역 일부(약 50%)에 들어가면 점수가 ×1.5됩니다.',
+    desc: '종료 구역 약 절반에 황금 구간이 생깁니다.\n들어가면 점수가 ×1.5가 됩니다.',
     icon: 'gift',
   },
   {
     id: 'target_cut',
     label: '느슨한 계약',
-    desc: '모든 라운드 목표 점수가 15% 줄어듭니다.',
+    desc: '모든 라운드 목표 점수가 15% 감소합니다.',
     icon: 'document',
   },
   {
@@ -237,8 +324,20 @@ const EFFECT_TYPES = [
   {
     id: 'bar_recycle',
     label: '순환 도가니',
-    desc: '특수 막대를 재사용 칸에 넣으면 다른 특수 막대로 바꿉니다. 라운드당 3회.',
+    desc: '특수 막대를 재사용 칸에 넣으면 다른 특수로 바꿉니다.\n라운드당 3회.',
     icon: 'arrowPathRounded',
+  },
+  {
+    id: 'risky_start',
+    label: '유리 성배',
+    desc: '시작 점수가 4점이 됩니다.\n대신 특수 막대를 지날 때 4% 확률로 공이 파괴됩니다.',
+    icon: 'exclamationTriangle',
+  },
+  {
+    id: 'mirror_drop',
+    label: '거울 낙하',
+    desc: '낙하 시 반대편에 거울 공이 함께 떨어집니다. (중앙 슬롯 제외)\n거울 공은 점수·배수·복제 효과가 절반이고, 워프는 그대로입니다.',
+    icon: 'arrowsRightLeft',
   },
 ];
 

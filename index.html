@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PINBALL</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="favicon.svg" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -30,10 +32,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260719b" />
+  <link rel="stylesheet" href="style.css?v=20260720i" />
 </head>
 <body class="min-h-screen font-note text-ink antialiased">
   <div class="desk-bg fixed inset-0 -z-10" aria-hidden="true"></div>
+  <div id="ballScoreTip" class="ball-score-tip" hidden aria-hidden="true">
+    <span class="formula"></span>
+    <span class="total"></span>
+  </div>
+  <div id="barFloatTip" class="bar-float-tip" hidden aria-hidden="true"></div>
 
   <!-- 좌측 상단: 라운드 / 드롭 / 점수 -->
   <aside id="roundHud" class="round-hud" aria-label="라운드 정보">
@@ -52,7 +59,33 @@
   <!-- 우측 상단: 보유 유물 -->
   <aside id="relicTray" class="relic-tray" aria-label="보유 유물"></aside>
 
-  <div class="app mx-auto flex min-h-screen max-w-[1100px] flex-wrap items-center justify-center gap-6 px-4 py-8 md:gap-8">
+  <!-- 좌측 중간: 상점 (드래그로 열고 닫기) · 골드는 상점과 함께 슬라이드 -->
+  <aside id="shopPanel" class="shop-panel" aria-label="상점" style="--shop-t: 1">
+    <div class="shop-slide">
+      <div id="goldHud" class="gold-hud" aria-label="골드">
+        <span id="hudGold" class="gold-num">0G</span>
+      </div>
+      <div class="shop-main-row">
+        <div id="shopBody" class="shop-body">
+          <div class="shop-row">
+            <div id="shopOffers" class="shop-offers"></div>
+            <div id="sellDrop" class="sell-drop has-tip"
+              data-tip-title="판매"
+              data-tip="막대를 넣으면 골드로 바꿉니다.&#10;일반 1G · 특수 2G.">
+              <span class="sell-label">판매</span>
+              <span class="sell-prices">1 / 2G</span>
+            </div>
+          </div>
+          <button id="btnShopReroll" class="shop-reroll action" type="button">리롤 · 1G</button>
+        </div>
+        <div id="shopHandle" class="shop-handle" role="separator" aria-orientation="vertical" aria-label="상점 열기 닫기" title="끌어서 열고 닫기">
+          <span class="shop-handle-bar" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="app mx-auto flex h-full max-h-[100dvh] max-w-[1100px] flex-wrap items-center justify-center gap-4 overflow-hidden px-4 py-4 md:gap-6">
     <!-- ===================== 보드 ===================== -->
     <main class="board-area flex w-full max-w-[560px] flex-col items-center">
       <header class="mb-3 w-full text-center">
@@ -76,37 +109,44 @@
         <div class="tools-with-recycle flex items-stretch gap-2">
           <div class="tools flex min-w-0 flex-1 flex-col gap-2.5">
           <button class="tool-btn active has-tip" data-tool="normal" type="button"
+            data-tip-title="일반 막대"
             data-tip="공이 부딪히면 튕깁니다. 점수는 변하지 않습니다.">
             <span class="swatch normal"></span>일반 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="normal">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="score" type="button"
-            data-tip="공이 통과 시 점수 +3. 빠져나갔다 다시 들어오면 또 발동합니다.">
+            data-tip-title="점수 막대"
+            data-tip="공이 지나가면 점수가 +3 됩니다.">
             <span class="swatch score"></span>점수 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="score">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="multiply" type="button"
-            data-tip="공이 통과 시 점수 ×2. 빠져나갔다 다시 들어오면 또 발동합니다.">
+            data-tip-title="배수 막대"
+            data-tip="공이 지나가면 점수가 ×2 됩니다.">
             <span class="swatch multiply"></span>배수 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="multiply">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="duplicate" type="button"
-            data-tip="공이 통과 시 같은 점수의 공이 1개 더 생깁니다. 빠져나갔다 다시 들어오면 또 발동합니다.">
+            data-tip-title="복제 막대"
+            data-tip="공이 지나가면 같은 점수의 공이 하나 더 생깁니다.">
             <span class="swatch duplicate"></span>복제 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="duplicate">0</span>
           </button>
           <button class="tool-btn has-tip" data-tool="warp" type="button"
-            data-tip="공이 통과 시 지정한 위치로 이동합니다(공당 1회). ×를 클릭해 이동할 위치를 고르세요.">
+            data-tip-title="워프 막대"
+            data-tip="공이 지나가면 지정한 위치로 이동합니다. (공당 1회)&#10;×를 눌러 도착지를 고르세요.">
             <span class="swatch warp"></span>워프 막대
             <span class="inv-count ml-auto font-sketch text-xl" data-inv="warp">0</span>
           </button>
           <button class="tool-btn danger has-tip" data-tool="delete" type="button"
-            data-tip="보드에서 드래그해 사각형을 만들면, 그 안의 막대가 모두 보관함으로 돌아갑니다.">
+            data-tip-title="삭제"
+            data-tip="보드에서 드래그해 사각형을 그리면, 안의 막대가 보관함으로 돌아갑니다.&#10;상점 막대는 삭제되지 않습니다.">
             <span class="swatch delete"></span>삭제
           </button>
           </div>
           <div id="recycleDrop" class="recycle-drop has-tip" hidden
-            data-tip="특수 막대를 여기로 드래그하면 다른 특수 막대로 바꿉니다. 라운드당 3회.">
+            data-tip-title="재사용"
+            data-tip="특수 막대를 넣으면 다른 특수 막대로 바꿉니다.&#10;라운드당 3회.">
             <svg class="recycle-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path fill="currentColor"
                 d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l1.46 1.46A7.9 7.9 0 0 0 20 12c0-2.21-.9-4.21-2.35-5.65zM6.35 17.65A7.95 7.95 0 0 0 12 20v3l5-5-5-5v3c-2.76 0-5-2.24-5-5 0-.65.13-1.26.36-1.83L5.9 7.71A7.9 7.9 0 0 0 4 12c0 2.21.9 4.21 2.35 5.65z"/>
@@ -119,7 +159,7 @@
       <section class="sketch-card">
         <h2 class="sketch-heading">진행</h2>
         <button id="btnStart" class="action primary" type="button">게임 시작</button>
-        <p class="hint mt-2 font-sketch text-base text-pencil/80">Enter / Space</p>
+        <p class="hint mt-2 font-sketch text-base text-pencil/80">Space · 진행 버튼</p>
       </section>
     </aside>
   </div>
@@ -157,14 +197,14 @@
     </div>
   </div>
 
-  <script src="matter.min.js?v=20260719b"></script>
-  <script src="config.js?v=20260719b"></script>
-  <script src="board.js?v=20260719b"></script>
-  <script src="bars.js?v=20260719b"></script>
-  <script src="balls.js?v=20260719b"></script>
-  <script src="renderer.js?v=20260719b"></script>
-  <script src="ui.js?v=20260719b"></script>
-  <script src="game.js?v=20260719b"></script>
+  <script src="matter.min.js?v=20260720h"></script>
+  <script src="config.js?v=20260720i"></script>
+  <script src="board.js?v=20260720h"></script>
+  <script src="bars.js?v=20260720h"></script>
+  <script src="balls.js?v=20260720h"></script>
+  <script src="renderer.js?v=20260720h"></script>
+  <script src="ui.js?v=20260720i"></script>
+  <script src="game.js?v=20260720h"></script>
   <script>
     // 스케치 지터 — 매 로드마다 랜덤 (이전 대비 강도 80%)
     (function sketchJitter() {

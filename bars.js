@@ -23,7 +23,6 @@ class BarManager {
   createBar(peg, typeKey) {
     const existing = this.barAtPeg(peg.id);
     if (existing) {
-      // 같은 위치에는 막대 하나만 — 각도를 유지한 채 종류를 교체한다.
       return this.changeBarType(existing, typeKey);
     }
 
@@ -39,14 +38,12 @@ class BarManager {
       invalidFlash: 0,
     };
 
-    // 기본 각도(0°)가 설치 불가능한 자리(예: 벽에 가까운 바깥쪽 열)라면
-    // 설치 가능한 각도를 찾아 그 각도로 놓는다. 세로(90°)를 우선한다.
     const preferred = [0, 90, 75, 105, 60, 120, 45, 135, 30, 150, 15, 165];
     const usable = preferred.find((deg) => this.isPlacementValid(bar, deg));
     if (usable === undefined) return null;
     bar.angleDeg = usable;
 
-    this.board.removePegBody(peg);   // 원형 페그 완전 제거
+    this.board.removePegBody(peg);
     peg.occupiedBy = bar.id;
     bar.body = this.makeBarBody(bar);
     Matter.Composite.add(this.world, bar.body);
@@ -55,7 +52,6 @@ class BarManager {
   }
 
   changeBarType(bar, typeKey) {
-    if (bar.type === typeKey) return bar;
     bar.type = typeKey;
     if (typeKey !== 'warp') bar.warpSpot = null;
     Matter.Composite.remove(this.world, bar.body);
@@ -68,12 +64,17 @@ class BarManager {
     const def = BAR_TYPES[bar.type];
     bar.length = this.lengthOf(bar);
     bar.microTiltDeg = 0;
+    let restitution = CONFIG.restitution;
+    if (bar.type === 'gravity') {
+      restitution =
+        CONFIG.restitution * (CONFIG.shopBars.gravityRestitutionScale ?? 0.6);
+    }
     const body = Matter.Bodies.rectangle(
       bar.x, bar.y, bar.length, CONFIG.barThickness,
       {
         isStatic: true,
         isSensor: def.sensor,
-        restitution: CONFIG.restitution,
+        restitution,
         friction: CONFIG.friction,
         frictionStatic: CONFIG.frictionStatic,
         angle: (this.physicsAngleDeg(bar) * Math.PI) / 180,
@@ -338,11 +339,12 @@ class BarManager {
 
   /** 유효하지 않은 워프 목적지가 남아 있으면 정리한다 */
   pruneWarpTargets() {
+    const freeRange = this.game && this.game.hasEffect('warp_mult');
     for (const bar of this.bars) {
       if (bar.type !== 'warp' || !bar.warpSpot) continue;
       const spot = bar.warpSpot;
       const ok =
-        this.board.isWarpSpotReachable(bar, spot) &&
+        this.board.isWarpSpotReachable(bar, spot, freeRange) &&
         this.board.isWarpSpotFree(spot, this.bars, bar.id);
       if (!ok) bar.warpSpot = null;
     }

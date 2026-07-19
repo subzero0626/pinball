@@ -51,6 +51,19 @@ class Game {
     this.sinkBonusZone = null;              // { x0, x1, mult } | null
     this.recycleUsesLeft = 0;               // 재사용 남은 횟수 (라운드당)
 
+    // 상점 / 골드 / 페그 잠금
+    this.gold = 0;
+    this.shopOffers = [];
+    this.shopRerollCost = CONFIG.shop.rerollStartCost;
+    this.relicPriceMap = {};
+    this.barPriceMap = {};
+    this.growthMult = null;                 // 성장 막대 — 첫 구매 시 0.7
+    this.lockedPegIds = new Set();
+    this.amplifyHitIds = new Set();         // 드롭 내 증폭 막대 1회 기록
+    this.hoverBar = null;
+    this.hoverBall = null;
+    this.paused = false;
+
     this.renderer = new Renderer(canvas, this);
     this.ui = new UI(this);
     this.bindCanvas(canvas);
@@ -61,6 +74,7 @@ class Game {
     this._prevNow = null;
     this._physAcc = 0;
 
+    this.refreshShopOffers();
     this.openBarDraft(
       `일반 막대 ${CONFIG.startingNormalBars}개를 받았습니다. 막대 하나를 고르세요.`
     );
@@ -68,9 +82,9 @@ class Game {
     requestAnimationFrame(this.loop);
   }
 
-  /** 인벤에 넣을 수 있는 모든 막대 키 (일반 포함) */
+  /** 인벤에 넣을 수 있는 막대 키 (상점 전용 제외) */
   allBarKeys() {
-    return Object.keys(BAR_TYPES);
+    return Object.keys(BAR_TYPES).filter((k) => !BAR_TYPES[k].shopOnly);
   }
 
   emptyInventory() {
@@ -163,7 +177,26 @@ class Game {
   }
 
   ballStartScore() {
+    if (this.hasEffect('risky_start')) {
+      return CONFIG.effectBalance.startScoreFlat || 4;
+    }
     return 1;
+  }
+
+  isMirrorDropActive() {
+    if (!this.hasEffect('mirror_drop')) return false;
+    const center = Math.floor(CONFIG.cols / 2);
+    return this.board.launchSlotIndex(this.launchX) !== center;
+  }
+
+  mirrorLaunchX(x) {
+    return CONFIG.boardWidth - x;
+  }
+
+  togglePause() {
+    if (this.phase !== 'run') return;
+    this.paused = !this.paused;
+    this.ui.setMessage(this.paused ? '일시정지' : '재개');
   }
 
   resetRecycleUses() {
@@ -173,7 +206,239 @@ class Game {
   }
 
   specialBarTypes() {
-    return this.allBarKeys().filter((k) => k !== 'normal');
+    return this.allBarKeys().filter((k) => k !== 'normal' && !BAR_TYPES[k].shopOnly);
+  }
+
+  isPegLocked(peg) {
+    if (!peg) return false;
+    return this.lockedPegIds.has(peg.id);
+  }
+
+  lockRandomPeg() {
+    const candidates = this.board.pegs.filter(
+      (p) => !this.lockedPegIds.has(p.id) && !this.bars.barAtPeg(p.id)
+    );
+    if (candidates.length === 0) return null;
+    const peg = candidates[Math.floor(Math.random() * candidates.length)];
+    this.lockedPegIds.add(peg.id);
+    return peg;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  상점
+   * ------------------------------------------------------------------ */
+  getRelicPrice(id) {
+    if (this.relicPriceMap[id] == null) {
+      this.relicPriceMap[id] = pickWeightedPrice(CONFIG.shop.relicPriceWeights);
+    }
+    return this.relicPriceMap[id];
+  }
+
+  getShopBarPrice(type) {
+    if (this.barPriceMap[type] == null) {
+      this.barPriceMap[type] = pickWeightedPrice(CONFIG.shop.barPriceWeights);
+    }
+    return this.barPriceMap[type];
+  }
+
+  refreshShopOffers() {
+    const count = CONFIG.shop.offerCount || 3;
+    const chance = CONFIG.shop.barOfferChance ?? 0.22;
+    const offers = [];
+    const usedRelics = new Set();
+    for (let i = 0; i < count; i++) {
+      const remaining = this.remainingEffects().filter(
+        (e) => !usedRelics.has(e.id)
+      );
+      let kind =
+        Math.random() < chance || remaining.length === 0 ? 'bar' : 'relic';
+      if (kind === 'bar' && (!SHOP_BAR_TYPES || SHOP_BAR_TYPES.length === 0)) {
+        kind = 'relic';
+      }
+      if (kind === 'relic' && remaining.length === 0) {
+        if (SHOP_BAR_TYPES && SHOP_BAR_TYPES.length > 0) kind = 'bar';
+        else {
+          offers.push(null);
+          continue;
+        }
+      }
+
+      if (kind === 'bar') {
+        const type =
+          SHOP_BAR_TYPES[Math.floor(Math.random() * SHOP_BAR_TYPES.length)];
+        const def = BAR_TYPES[type];
+        offers.push({
+          kind: 'bar',
+          type,
+          label: def.label,
+          desc: (typeof BAR_TIPS !== 'undefined' && BAR_TIPS[type]) || '',
+          color: def.color,
+          price: this.getShopBarPrice(type),
+        });
+      } else {
+        const effect = remaining[Math.floor(Math.random() * remaining.length)];
+        usedRelics.add(effect.id);
+        offers.push({
+          kind: 'relic',
+          id: effect.id,
+          label: effect.label,
+          desc: effect.desc || '',
+          icon: effect.icon,
+          price: this.getRelicPrice(effect.id),
+        });
+      }
+    }
+    this.shopOffers = offers;
+    if (this.ui) this.ui.renderShop();
+  }
+
+  tryShopReroll() {
+    if (this.phase === 'run' || this.phase === 'fail') return false;
+    if (this.gold < this.shopRerollCost) {
+      this.ui.setMessage(`리롤에 ${this.shopRerollCost}G가 필요합니다.`);
+      return false;
+    }
+    this.gold -= this.shopRerollCost;
+    this.shopRerollCost += 1;
+    this.refreshShopOffers();
+    this.ui.refresh();
+    this.ui.setMessage(`상점 리롤 (−${this.shopRerollCost - 1}G).`);
+    return true;
+  }
+
+  buyShopOffer(index) {
+    if (this.phase === 'run' || this.phase === 'fail') return false;
+    const offer = this.shopOffers[index];
+    if (!offer) return false;
+    if (offer.kind === 'bar') return this.buyShopBar(index);
+    return this.buyShopRelic(index);
+  }
+
+  buyShopRelic(index) {
+    const offer = this.shopOffers[index];
+    if (!offer || offer.kind !== 'relic') return false;
+    if (this.ownedEffects.includes(offer.id)) {
+      this.ui.setMessage('이미 보유한 유물입니다.');
+      return false;
+    }
+    if (this.gold < offer.price) {
+      this.ui.setMessage(`골드가 부족합니다 (${offer.price}G).`);
+      return false;
+    }
+    const def = EFFECT_TYPES.find((e) => e.id === offer.id);
+    if (!def) return false;
+
+    this.gold -= offer.price;
+    this.shopOffers[index] = null;
+    this.grantEffect(def);
+    this.ui.refresh();
+    this.ui.setMessage(`「${def.label}」구매 (−${offer.price}G).`);
+    return true;
+  }
+
+  buyShopBar(index) {
+    const offer = this.shopOffers[index];
+    if (!offer || offer.kind !== 'bar') return false;
+    if (this.gold < offer.price) {
+      this.ui.setMessage(`골드가 부족합니다 (${offer.price}G).`);
+      return false;
+    }
+    const peg = this.pickRandomEmptyPegForBar();
+    if (!peg) {
+      this.ui.setMessage('빈 페그가 없어 상점 막대를 배치할 수 없습니다.');
+      return false;
+    }
+
+    this.gold -= offer.price;
+    const created = this.bars.createBar(peg, offer.type);
+    if (!created) {
+      this.gold += offer.price;
+      this.ui.setMessage('이 위치에는 막대를 설치할 수 없습니다.');
+      return false;
+    }
+
+    if (offer.type === 'growth' && this.growthMult == null) {
+      this.growthMult = CONFIG.shopBars.growthStart ?? 0.7;
+    }
+
+    this.shopOffers[index] = null;
+    this.selectedBar = created;
+    this.ui.refresh();
+    this.ui.setMessage(
+      `${BAR_TYPES[offer.type].label} 구매 · 보드에 배치 (−${offer.price}G).`
+    );
+    return true;
+  }
+
+  pickRandomEmptyPegForBar() {
+    const candidates = this.board.pegs.filter(
+      (p) =>
+        p.body &&
+        !p.occupiedBy &&
+        !this.bars.barAtPeg(p.id) &&
+        !this.isPegLocked(p)
+    );
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  grantEffect(effect) {
+    if (!effect || !effect.id) return false;
+    if (this.ownedEffects.includes(effect.id)) return false;
+    this.ownedEffects.push(effect.id);
+    if (effect.id === 'map_spring') this.spawnMapSpring();
+    if (effect.id === 'sink_bonus') this.rollSinkBonusZone();
+    this.ui.renderRelicTray();
+    return true;
+  }
+
+  onRoundCleared() {
+    this.gold += CONFIG.shop.roundGold || 12;
+    this.shopRerollCost = CONFIG.shop.rerollStartCost;
+    this.refreshShopOffers();
+    this.lockRandomPeg();
+  }
+
+  sellPriceFor(type) {
+    if (type === 'normal') return CONFIG.shop.sellNormal ?? 1;
+    return CONFIG.shop.sellSpecial ?? 2;
+  }
+
+  trySellInventory(type) {
+    if (!BAR_TYPES[type] || type === 'delete' || BAR_TYPES[type].shopOnly) {
+      return false;
+    }
+    if (!this.tryConsume(type)) return false;
+    const gain = this.sellPriceFor(type);
+    this.gold += gain;
+    this.ui.setMessage(`${BAR_TYPES[type].label} 판매 (+${gain}G).`);
+    return true;
+  }
+
+  trySellBar(bar) {
+    if (!bar) return false;
+    if (BAR_TYPES[bar.type]?.shopOnly) {
+      this.ui.setMessage('상점 막대는 영구 설치라 판매할 수 없습니다.');
+      return false;
+    }
+    const gain = this.sellPriceFor(bar.type);
+    if (this.selectedBar && this.selectedBar.id === bar.id) this.selectedBar = null;
+    this.bars.removeBar(bar);
+    this.gold += gain;
+    this.ui.setMessage(`${BAR_TYPES[bar.type].label} 판매 (+${gain}G).`);
+    return true;
+  }
+
+  /** 보드에서 막대 제거 → 보관함. 상점 막대는 불가 */
+  removeBarFromBoard(bar) {
+    if (!bar) return { ok: false };
+    if (BAR_TYPES[bar.type]?.shopOnly) {
+      return { ok: false, permanent: true };
+    }
+    this.refund(bar.type);
+    if (this.selectedBar && this.selectedBar.id === bar.id) this.selectedBar = null;
+    this.bars.removeBar(bar);
+    return { ok: true };
   }
 
   /** 보유 특수 막대 → 다른 특수 막대로 교환 */
@@ -237,9 +502,12 @@ class Game {
   }
 
   openEffectDraft(message) {
+    this.onRoundCleared();
     this.generateEffectDraftOffers();
     if (this.draftOffers.length === 0) {
-      this.advanceAfterRoundClear('모든 유물을 모았습니다. 다음 라운드를 준비하세요.');
+      this.advanceAfterRoundClear(
+        `라운드 클리어! +${CONFIG.shop.roundGold}G. 모든 유물을 모았습니다. 다음 라운드를 준비하세요.`
+      );
       return;
     }
     this.phase = 'effect';
@@ -247,7 +515,10 @@ class Game {
     this.selectedSpring = null;
     this.dragging = null;
     this.ui.showEffectDraft(this.draftOffers);
-    this.ui.setMessage(message || '라운드 클리어! 유물을 고르세요.');
+    this.ui.setMessage(
+      message ||
+        `라운드 클리어! +${CONFIG.shop.roundGold}G. 유물을 고르세요.`
+    );
   }
 
   pickBarDraft(index) {
@@ -267,17 +538,9 @@ class Game {
     const effect = this.draftOffers[index];
     if (!effect) return;
 
-    this.ownedEffects.push(effect.id);
     this.draftOffers = [];
     this.ui.hideDraft();
-
-    if (effect.id === 'map_spring') {
-      this.spawnMapSpring();
-    }
-    if (effect.id === 'sink_bonus') {
-      this.rollSinkBonusZone();
-    }
-    this.ui.renderRelicTray();
+    this.grantEffect(effect);
 
     this.advanceAfterRoundClear(
       () =>
@@ -506,7 +769,7 @@ class Game {
           continue;
         }
 
-        // 페그 가산 / 일반 막대 확률 점수 (최소 0.1초 간격, 붙어 있으면 제외)
+        // 페그 가산 / 일반·중력 막대 점수 (최소 0.1초 간격, 붙어 있으면 제외)
         if (other.gamePeg && this.hasEffect('peg_score')) {
           this.tryContactScoreMult(ball, `peg:${other.gamePeg.id}`, () => {
             this.balls.multiplyScore(ball, CONFIG.effectBalance.pegScoreMult);
@@ -516,6 +779,10 @@ class Game {
             if (Math.random() < CONFIG.effectBalance.normalProcChance) {
               this.balls.multiplyScore(ball, CONFIG.effectBalance.normalProcMult);
             }
+          });
+        } else if (bar && bar.type === 'gravity') {
+          this.tryContactScoreMult(ball, `bar:${bar.id}`, () => {
+            this.balls.addScore(ball, CONFIG.shopBars.gravityScore ?? 4);
           });
         }
 
@@ -542,8 +809,12 @@ class Game {
           }
         }
 
-        // 0° 일반 막대에 안착하면 이전 가로 힘 방향으로 굴림
-        if (bar && bar.type === 'normal' && bar.angleDeg === 0) {
+        // 0° 일반·중력 막대에 안착하면 이전 가로 힘 방향으로 굴림
+        if (
+          bar &&
+          (bar.type === 'normal' || bar.type === 'gravity') &&
+          bar.angleDeg === 0
+        ) {
           const preferX =
             Math.abs(ballBody.velocity.x) > CONFIG.lastDirMinSpeed
               ? ballBody.velocity.x
@@ -565,6 +836,20 @@ class Game {
 
         if (bar && BAR_TYPES[bar.type].sensor) {
           ball.activeSensors.delete(bar.id);
+          // 늪 — 벗어나면 속도 복구
+          if (bar.type === 'swamp' && ball.swampDepth > 0) {
+            ball.swampDepth -= 1;
+            if (ball.swampDepth <= 0) {
+              ball.swampDepth = 0;
+              const v = ballBody.velocity;
+              const speed = Math.hypot(v.x, v.y) || 1;
+              const exit = CONFIG.shopBars.swampExitSpeed ?? 2.2;
+              Matter.Body.setVelocity(ballBody, {
+                x: (v.x / speed) * exit,
+                y: (v.y / speed) * exit,
+              });
+            }
+          }
         }
         if (ball.stuckContacts) {
           if (other.gamePeg) ball.stuckContacts.delete(`peg:${other.gamePeg.id}`);
@@ -796,6 +1081,7 @@ class Game {
     if (this.pendingEffects.length === 0) return;
     const queue = this.pendingEffects;
     this.pendingEffects = [];
+    const sb = CONFIG.shopBars || {};
 
     for (const item of queue) {
       const ball = this.balls.balls.find((x) => x.id === item.ballId);
@@ -805,14 +1091,30 @@ class Game {
       // 워프 제외 특수 막대: 빠져나갔다 다시 들어오면 무제한 발동
       // (겹쳐 있는 동안은 activeSensors로 1회만)
 
+      let skipNudge = false;
+
       switch (bar.type) {
-        case 'score':
-          this.balls.addScore(ball, this.scoreBarAmount(ball));
+        case 'score': {
+          let amount = this.scoreBarAmount(ball);
+          if (ball.isMirror) amount = gameInt(amount * 0.5) || 1;
+          this.balls.addScore(ball, amount);
           break;
-        case 'multiply':
-          this.balls.multiplyScore(ball, this.multiplyFactor());
+        }
+        case 'multiply': {
+          const factor = ball.isMirror
+            ? CONFIG.effectBalance.mirrorMultiplyFactor
+            : this.multiplyFactor();
+          this.balls.multiplyScore(ball, factor);
           break;
+        }
         case 'duplicate': {
+          if (ball.isMirror) {
+            if (Math.random() >= CONFIG.effectBalance.mirrorDuplicateChance) break;
+            let clones = 1;
+            if (Math.random() < CONFIG.effectBalance.mirrorTripleChance) clones = 2;
+            this.balls.duplicateBall(ball, clones);
+            break;
+          }
           let clones = 1;
           if (
             this.hasEffect('duplicate_triple') &&
@@ -832,14 +1134,87 @@ class Game {
           if (!ok && BAR_TYPES[bar.type].sensor) {
             this.nudgeBallOnPass(ball);
           }
+          skipNudge = true;
+          break;
+        }
+        case 'swamp': {
+          this.balls.addScore(ball, sb.swampScore ?? 4);
+          ball.swampDepth = (ball.swampDepth || 0) + 1;
+          const v = ball.body.velocity;
+          const speed = Math.hypot(v.x, v.y);
+          const max = sb.swampMaxSpeed ?? 0.45;
+          if (speed > max && speed > 0) {
+            Matter.Body.setVelocity(ball.body, {
+              x: (v.x / speed) * max,
+              y: (v.y / speed) * max,
+            });
+          }
+          skipNudge = true;
+          break;
+        }
+        case 'amplify': {
+          const first = !this.amplifyHitIds.has(bar.id);
+          if (first) this.amplifyHitIds.add(bar.id);
+          const factor = first
+            ? sb.amplifyFirst ?? 3
+            : sb.amplifyRest ?? 0.9;
+          this.balls.multiplyScore(ball, factor);
+          break;
+        }
+        case 'gamble': {
+          const win = Math.random() < (sb.gambleWinChance ?? 0.6);
+          const factor = win
+            ? sb.gambleWinMult ?? 1.4
+            : sb.gambleLoseMult ?? 0.8;
+          this.balls.multiplyScore(ball, factor);
+          break;
+        }
+        case 'chaos_warp': {
+          const ok = this.balls.chaosWarpBall(ball);
+          if (!ok) this.nudgeBallOnPass(ball);
+          skipNudge = true;
+          break;
+        }
+        case 'growth': {
+          const mult = this.growthMult != null
+            ? this.growthMult
+            : sb.growthStart ?? 0.7;
+          this.balls.multiplyScore(ball, mult);
+          break;
+        }
+        case 'glass': {
+          this.balls.multiplyScore(ball, sb.glassMult ?? 2.4);
+          ball.isGlass = true;
           break;
         }
         default:
           break;   // 일반 막대는 효과 없음
       }
 
-      // 통과형(특수) 막대만 방향 꺾기 — 워프는 위에서 처리
-      if (BAR_TYPES[bar.type].sensor && bar.type !== 'warp') {
+      // 유리 성배 — 특수 통과 시 확률 파괴
+      if (
+        this.hasEffect('risky_start') &&
+        BAR_TYPES[bar.type].sensor &&
+        Math.random() < (CONFIG.effectBalance.passBreakChance ?? 0.04)
+      ) {
+        this.addEffect(
+          ball.body.position.x,
+          ball.body.position.y,
+          '파괴',
+          '#8b2e2e'
+        );
+        this.balls.removeBall(ball);
+        continue;
+      }
+
+      // 통과형(특수) 막대만 방향 꺾기 — 워프·늪·불완전 워프는 위에서 처리
+      if (
+        !skipNudge &&
+        BAR_TYPES[bar.type].sensor &&
+        bar.type !== 'warp' &&
+        bar.type !== 'chaos_warp' &&
+        bar.type !== 'swamp'
+      ) {
         this.nudgeBallOnPass(ball);
       }
     }
@@ -884,21 +1259,35 @@ class Game {
     }
 
     this.phase = 'run';
+    this.paused = false;
     this.selectedBar = null;
     this.hoverPeg = null;
+    this.hoverBar = null;
+    this.hoverBall = null;
     this.rollSinkBonusZone();
     this.dragging = null;
     this.dropScore = 0;
     this.sharedScoreBarHits = 0; // 점수 나선 — 드롭마다 초기화
+    this.amplifyHitIds.clear();
     this.usedDeflectKeys.clear();
     this.pendingDeflects = [];
     this.pendingFlatRolls = [];
     this.pendingPegJitters = [];
     this.snapLaunchToSlot();
 
-    for (let i = 0; i < CONFIG.ballsPerRound; i++) {
-      this.balls.createBall(this.launchX, CONFIG.launchY, {
-        score: this.ballStartScore(),
+    for (const spring of this.springs) {
+      spring.spent = false;
+    }
+
+    const startScore = this.ballStartScore();
+    this.balls.createBall(this.launchX, CONFIG.launchY, {
+      score: startScore,
+      velocity: { x: 0, y: CONFIG.launchSpeed },
+    });
+    if (this.isMirrorDropActive()) {
+      this.balls.createBall(this.mirrorLaunchX(this.launchX), CONFIG.launchY, {
+        score: startScore,
+        isMirror: true,
         velocity: { x: 0, y: CONFIG.launchSpeed },
       });
     }
@@ -915,10 +1304,17 @@ class Game {
     const dropDone = this.dropIndex;
     const lastDrop = dropDone >= CONFIG.dropsPerRound;
 
+    if (this.growthMult != null) {
+      this.growthMult =
+        Math.round(
+          (this.growthMult + (CONFIG.shopBars.growthPerDrop ?? 0.1)) * 100
+        ) / 100;
+    }
+
     if (lastDrop) {
       if (this.roundScore >= target) {
         this.openEffectDraft(
-          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! 유물을 고르세요.`
+          `드롭 ${dropDone} 종료 (+${this.dropScore}). 합계 ${this.roundScore}/${target} — 목표 달성! +${CONFIG.shop.roundGold}G · 유물을 고르세요.`
         );
       } else {
         const failedSum = this.roundScore;
@@ -962,6 +1358,20 @@ class Game {
 
   /** 공이 보드 아래 종료 구역에 도착 */
   sinkBall(ball) {
+    if (
+      ball.isGlass &&
+      Math.random() < (CONFIG.shopBars.glassBreakChance ?? 0.5)
+    ) {
+      this.addEffect(
+        ball.body.position.x,
+        CONFIG.sinkY + 12,
+        '깨짐',
+        BAR_TYPES.glass.glow
+      );
+      this.balls.removeBall(ball);
+      return;
+    }
+
     let gained = gameInt(ball.score);
     const zone = this.sinkBonusZone;
     if (zone) {
@@ -999,6 +1409,16 @@ class Game {
     this.sharedScoreBarHits = 0;
     this.sinkBonusZone = null;
     this.recycleUsesLeft = 0;
+    this.gold = 0;
+    this.shopRerollCost = CONFIG.shop.rerollStartCost;
+    this.relicPriceMap = {};
+    this.barPriceMap = {};
+    this.growthMult = null;
+    this.lockedPegIds = new Set();
+    this.amplifyHitIds = new Set();
+    this.paused = false;
+    this.hoverBar = null;
+    this.hoverBall = null;
     this.selectedBar = null;
     this.selectedSpring = null;
     this.clearSprings();
@@ -1012,6 +1432,7 @@ class Game {
     this.usedDeflectKeys.clear();
     this.inventory = this.startingInventory();
     this.ui.hideFail();
+    this.refreshShopOffers();
     this.openBarDraft(
       message ||
         `초기화됨 — 일반 막대 ${CONFIG.startingNormalBars}개. 막대 하나를 고르세요.`
@@ -1059,6 +1480,12 @@ class Game {
   placeBarOnPeg(type, peg) {
     if (this.phase !== 'edit') return false;
     if (!peg || !BAR_TYPES[type] || type === 'delete') return false;
+    if (BAR_TYPES[type].shopOnly) return false;
+
+    if (this.isPegLocked(peg)) {
+      this.ui.setMessage('잠긴 페그에는 막대를 설치할 수 없습니다.');
+      return false;
+    }
 
     const existing = this.bars.barAtPeg(peg.id);
     if (existing && existing.type === type) {
@@ -1066,6 +1493,11 @@ class Game {
       this.selectedTool = type;
       this.ui.setMessage(`${BAR_TYPES[type].label} 선택 — Q/E, 휠, 드래그로 회전할 수 있습니다.`);
       return true;
+    }
+
+    if (existing && BAR_TYPES[existing.type]?.shopOnly) {
+      this.ui.setMessage('상점 막대는 다른 종류로 교체할 수 없습니다.');
+      return false;
     }
 
     if (!this.tryConsume(type)) {
@@ -1127,12 +1559,15 @@ class Game {
     this.ui.moveInvGhost(clientX, clientY);
 
     const overRecycle = this.ui.isOverRecycle(clientX, clientY);
+    const overSell = this.ui.isOverSell(clientX, clientY);
     this.ui.setRecycleHot(overRecycle && this.invDrag.type !== 'normal');
+    this.ui.setSellHot(overSell);
 
     const canvas = this.renderer.canvas;
     const rect = canvas.getBoundingClientRect();
     const over =
       !overRecycle &&
+      !overSell &&
       clientX >= rect.left &&
       clientX <= rect.right &&
       clientY >= rect.top &&
@@ -1153,9 +1588,16 @@ class Game {
     this.invDrag = null;
     this.ui.hideInvGhost();
     this.ui.setRecycleHot(false);
+    this.ui.setSellHot(false);
 
     if (!moved) {
       this.selectTool(type);
+      this.hoverPeg = null;
+      return;
+    }
+
+    if (this.ui.isOverSell(clientX, clientY)) {
+      this.trySellInventory(type);
       this.hoverPeg = null;
       return;
     }
@@ -1190,25 +1632,27 @@ class Game {
     this.ui.setMessage('페그 위에 놓아야 설치됩니다.');
   }
 
-  /** 삭제 마퀴 사각형 안의 막대를 모두 보관함으로 */
+  /** 삭제 마퀴 사각형 안의 막대를 보관함으로 (상점 막대는 건너뜀) */
   refundBarsInMarquee() {
     const m = this.deleteMarquee;
-    if (!m) return 0;
+    if (!m) return { removed: 0, skipped: 0 };
     const left = Math.min(m.x0, m.x1);
     const right = Math.max(m.x0, m.x1);
     const top = Math.min(m.y0, m.y1);
     const bottom = Math.max(m.y0, m.y1);
-    if (right - left < 4 || bottom - top < 4) return 0;
+    if (right - left < 4 || bottom - top < 4) return { removed: 0, skipped: 0 };
 
     const hit = this.bars.bars.filter(
       (b) => b.x >= left && b.x <= right && b.y >= top && b.y <= bottom
     );
+    let removed = 0;
+    let skipped = 0;
     for (const bar of [...hit]) {
-      this.refund(bar.type);
-      if (this.selectedBar && this.selectedBar.id === bar.id) this.selectedBar = null;
-      this.bars.removeBar(bar);
+      const result = this.removeBarFromBoard(bar);
+      if (result.permanent) skipped += 1;
+      else if (result.ok) removed += 1;
     }
-    return hit.length;
+    return { removed, skipped };
   }
 
   /** 스프링 부스트 — 스프링당 1회 발사 후 spent(이후 일반 막대 튕김). 워프해도 spent 유지 */
@@ -1290,10 +1734,11 @@ class Game {
         warpTarget ||
         this.bars.bars.filter((b) => b.type === 'warp').slice(-1)[0] ||
         null;
-      const spot = this.board.warpSpotAt(x, y, 18, bar);
+      const freeRange = this.hasEffect('warp_mult');
+      const spot = this.board.warpSpotAt(x, y, 18, bar, freeRange);
       if (spot && bar) {
         if (
-          this.board.isWarpSpotReachable(bar, spot) &&
+          this.board.isWarpSpotReachable(bar, spot, freeRange) &&
           this.board.isWarpSpotFree(spot, this.bars.bars, bar.id)
         ) {
           bar.warpSpot = {
@@ -1306,8 +1751,12 @@ class Game {
           this.ui.setMessage('워프 도착 위치를 지정했습니다.');
           return;
         }
-        if (!this.board.isWarpSpotReachable(bar, spot)) {
-          this.ui.setMessage('워프는 위·아래 3칸 이내로만 이동할 수 있습니다.');
+        if (!this.board.isWarpSpotReachable(bar, spot, freeRange)) {
+          this.ui.setMessage(
+            freeRange
+              ? '그 워프 도착지는 사용할 수 없습니다.'
+              : '워프는 위·아래 3칸 이내로만 이동할 수 있습니다.'
+          );
           return;
         }
         this.ui.setMessage('그 위치는 페그/일반 막대와 겹쳐 도착지로 쓸 수 없습니다.');
@@ -1332,7 +1781,11 @@ class Game {
     this.selectedSpring = null;
     const peg = this.board.pegAt(x, y);
     if (peg) {
-      this.ui.setMessage('막대는 보유 칸에서 페그로 드래그해야 설치됩니다.');
+      if (this.isPegLocked(peg)) {
+        this.ui.setMessage('잠긴 페그입니다. 막대를 설치할 수 없습니다.');
+      } else {
+        this.ui.setMessage('막대는 보유 칸에서 페그로 드래그해야 설치됩니다.');
+      }
     }
   }
 
@@ -1368,9 +1821,13 @@ class Game {
       this.ui.moveInvGhost(clientX, clientY, this.barDrag.bar.angleDeg);
     }
 
+    const overSell = this.ui.isOverSell(clientX, clientY);
+    this.ui.setSellHot(overSell && this.barDrag.moved);
+
     const canvas = this.renderer.canvas;
     const rect = canvas.getBoundingClientRect();
     const over =
+      !overSell &&
       clientX >= rect.left &&
       clientX <= rect.right &&
       clientY >= rect.top &&
@@ -1389,6 +1846,7 @@ class Game {
     const { bar, moved, fromPegId } = this.barDrag;
     this.barDrag = null;
     this.ui.hideInvGhost();
+    this.ui.setSellHot(false);
     this.hoverPeg = null;
 
     if (!moved) {
@@ -1398,6 +1856,14 @@ class Game {
       this.ui.setMessage(
         `${BAR_TYPES[bar.type].label} 선택 — Q/E·휠로 회전, 드래그로 이동. 삭제는 삭제 도구를 쓰세요.`
       );
+      return;
+    }
+
+    if (this.ui.isOverSell(clientX, clientY)) {
+      // liftForDrag 로 페그가 복구된 상태 — 판매 실패 시 원위치 복구
+      if (!this.trySellBar(bar)) {
+        this.bars.restoreAfterDragCancel(bar);
+      }
       return;
     }
 
@@ -1414,6 +1880,11 @@ class Game {
       const y = ((clientY - rect.top) / rect.height) * CONFIG.boardHeight;
       const peg = this.board.pegSlotAt(x, y, 20);
       if (peg) {
+        if (this.isPegLocked(peg) && peg.id !== fromPegId) {
+          this.bars.restoreAfterDragCancel(bar);
+          this.ui.setMessage('잠긴 페그로는 옮길 수 없습니다.');
+          return;
+        }
         const swapped = this.bars.barAtPeg(peg.id) && peg.id !== fromPegId;
         if (this.bars.moveBarToPeg(bar, peg)) {
           bar.dragging = false;
@@ -1496,8 +1967,32 @@ class Game {
 
       if (this.phase === 'edit' && !this.barDrag && !this.invDrag) {
         this.hoverPeg = this.board.pegAt(p.x, p.y);
-      } else if (this.phase !== 'edit') {
+        this.hoverBar = this.bars.barAt(p.x, p.y);
+        this.ui.updateBoardBarTip(this.hoverBar);
+        this.hoverBall = null;
+      } else if (this.phase === 'run') {
         this.hoverPeg = null;
+        this.hoverBar = null;
+        this.ui.updateBoardBarTip(null);
+        let best = null;
+        let bestD = Infinity;
+        for (const ball of this.balls.balls) {
+          if (!ball.body) continue;
+          const d = Math.hypot(
+            ball.body.position.x - p.x,
+            ball.body.position.y - p.y
+          );
+          if (d < CONFIG.ballRadius + 14 && d < bestD) {
+            best = ball;
+            bestD = d;
+          }
+        }
+        this.hoverBall = best;
+      } else {
+        this.hoverPeg = null;
+        this.hoverBar = null;
+        this.hoverBall = null;
+        this.ui.updateBoardBarTip(null);
       }
 
       if (!this.dragging) return;
@@ -1529,12 +2024,22 @@ class Game {
 
       if (drag && drag.kind === 'marquee') {
         if (drag.moved) {
-          const n = this.refundBarsInMarquee();
-          this.ui.setMessage(
-            n > 0
-              ? `선택한 영역에서 막대 ${n}개를 보관함으로 되돌렸습니다.`
-              : '선택한 영역 안에 막대가 없습니다.'
-          );
+          const { removed, skipped } = this.refundBarsInMarquee();
+          if (removed > 0 && skipped > 0) {
+            this.ui.setMessage(
+              `막대 ${removed}개를 보관함으로 되돌렸습니다. 상점 막대 ${skipped}개는 영구라 제외했습니다.`
+            );
+          } else if (removed > 0) {
+            this.ui.setMessage(
+              `선택한 영역에서 막대 ${removed}개를 보관함으로 되돌렸습니다.`
+            );
+          } else if (skipped > 0) {
+            this.ui.setMessage(
+              `상점 막대 ${skipped}개는 영구 설치라 삭제되지 않습니다.`
+            );
+          } else {
+            this.ui.setMessage('선택한 영역 안에 막대가 없습니다.');
+          }
         } else if (this.pressPoint) {
           const p = toBoard(evt);
           if (Math.hypot(p.x - this.pressPoint.x, p.y - this.pressPoint.y) < 6) {
@@ -1578,7 +2083,12 @@ class Game {
         this.dragging = null;
         this.deleteMarquee = null;
       }
-      if (!this.barDrag && !this.invDrag) this.hoverPeg = null;
+      if (!this.barDrag && !this.invDrag) {
+        this.hoverPeg = null;
+        this.hoverBar = null;
+        this.hoverBall = null;
+        this.ui.updateBoardBarTip(null);
+      }
     });
 
     canvas.addEventListener('wheel', (evt) => {
@@ -1621,6 +2131,12 @@ class Game {
     window.addEventListener('keydown', (evt) => {
       const k = evt.key.toLowerCase();
 
+      if (this.phase === 'run' && (k === 'enter' || k === ' ')) {
+        evt.preventDefault();
+        this.togglePause();
+        return;
+      }
+
       // 편집 중: Enter / Space 로 게임 시작
       if (this.phase === 'edit' && (k === 'enter' || k === ' ')) {
         evt.preventDefault();
@@ -1639,10 +2155,16 @@ class Game {
       else if ((k === 'delete' || k === 'backspace') && this.selectedBar) {
         evt.preventDefault();
         const removedType = this.selectedBar.type;
-        this.refund(removedType);
-        this.bars.removeBar(this.selectedBar);
-        this.selectedBar = null;
-        this.ui.setMessage(`${BAR_TYPES[removedType].label} 제거 — 보유로 돌아왔습니다.`);
+        const result = this.removeBarFromBoard(this.selectedBar);
+        if (result.permanent) {
+          this.ui.setMessage(
+            `${BAR_TYPES[removedType].label} 은(는) 영구 상점 막대라 삭제할 수 없습니다.`
+          );
+        } else if (result.ok) {
+          this.ui.setMessage(
+            `${BAR_TYPES[removedType].label} 제거 — 보유로 돌아왔습니다.`
+          );
+        }
       }
     });
   }
@@ -1724,10 +2246,15 @@ class Game {
     const step = CONFIG.fixedDtMs || 1000 / 60;
     const maxSteps = CONFIG.maxPhysSteps || 5;
 
-    if (this.phase === 'run') {
+    if (this.phase === 'run' && !this.paused) {
       this._physAcc += dt;
       let steps = 0;
-      while (this._physAcc >= step && steps < maxSteps && this.phase === 'run') {
+      while (
+        this._physAcc >= step &&
+        steps < maxSteps &&
+        this.phase === 'run' &&
+        !this.paused
+      ) {
         this.fixedUpdate(step);
         this._physAcc -= step;
         steps++;

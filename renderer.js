@@ -46,6 +46,17 @@ class Renderer {
     this.drawEffects();
     this.drawSinkZone();
     this.drawDeleteMarquee();
+    this.drawPauseOverlay();
+  }
+
+  /** 일시정지 — 보드만 회색 (글자 없음) */
+  drawPauseOverlay() {
+    if (this.game.phase !== 'run' || !this.game.paused) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(72, 72, 72, 0.5)';
+    ctx.fillRect(0, 0, CONFIG.boardWidth, CONFIG.boardHeight);
+    ctx.restore();
   }
 
   drawDeleteMarquee() {
@@ -121,10 +132,38 @@ class Renderer {
       ctx.textAlign = 'center';
       ctx.fillText('상단을 좌우로 드래그해 낙하 위치를 고르세요', CONFIG.boardWidth / 2, 28);
 
-      const lx = g.launchX;
-      this.sketchCircleFill(lx, CONFIG.launchY, CONFIG.ballRadius, 'rgba(47, 93, 140, 0.45)', 99, 0.5, 2.2);
-      this.sketchCircleStroke(lx, CONFIG.launchY, CONFIG.ballRadius, '#2a2622', 99);
+      const score = g.ballStartScore();
+      this.drawPreviewBall(g.launchX, CONFIG.launchY, score, false);
+      if (g.isMirrorDropActive()) {
+        this.drawPreviewBall(
+          g.mirrorLaunchX(g.launchX),
+          CONFIG.launchY,
+          score,
+          true
+        );
+      }
     }
+  }
+
+  /** 편집 중 낙하 위치 미리보기 공 */
+  drawPreviewBall(x, y, score, mirror) {
+    const ctx = this.ctx;
+    ctx.save();
+    if (mirror) ctx.globalAlpha = 0.55;
+
+    const fill = mirror ? 'rgba(64, 196, 210, 0.85)' : '#e8e2d6';
+    const stroke = mirror ? '#1a6b75' : '#2a2622';
+    const seed = mirror ? 101 : 99;
+    this.sketchCircleFill(x, y, CONFIG.ballRadius, fill, seed, 0.3, 2.0);
+    this.sketchCircleStroke(x, y, CONFIG.ballRadius, stroke, seed);
+
+    const label = BallManager.labelFor(score);
+    ctx.fillStyle = mirror ? '#0d3d44' : '#2a2622';
+    ctx.font = `bold ${label.size + 2}px Gaegu, cursive`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label.text, x, y + 0.5);
+    ctx.restore();
   }
 
   drawWarpSpots() {
@@ -163,10 +202,11 @@ class Renderer {
     if (!g.selectedBar || g.selectedBar.type !== 'warp') return;
 
     const targetBar = g.selectedBar;
+    const freeRange = g.hasEffect('warp_mult');
 
     for (const spot of g.board.warpSpots) {
       if (targetBar.warpSpot && targetBar.warpSpot.id === spot.id) continue;
-      if (!g.board.isWarpSpotReachable(targetBar, spot)) continue;
+      if (!g.board.isWarpSpotReachable(targetBar, spot, freeRange)) continue;
       if (!g.board.isWarpSpotFree(spot, g.bars.bars, targetBar.id)) continue;
       drawX(spot, false);
     }
@@ -220,9 +260,24 @@ class Renderer {
       if (hovered && this.game.phase === 'edit') {
         ctx.beginPath();
         ctx.arc(peg.x, peg.y, CONFIG.pegRadius + 5, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(47, 93, 140, 0.7)';
+        ctx.strokeStyle = this.game.isPegLocked(peg)
+          ? 'rgba(139, 46, 46, 0.7)'
+          : 'rgba(47, 93, 140, 0.7)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
+      }
+
+      if (this.game.phase === 'edit' && this.game.isPegLocked(peg)) {
+        ctx.save();
+        ctx.font = 'bold 12px Gaegu, cursive';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#2a2622';
+        ctx.fillStyle = '#c9a227';
+        ctx.strokeText('🔒', peg.x, peg.y - CONFIG.pegRadius - 9);
+        ctx.fillText('🔒', peg.x, peg.y - CONFIG.pegRadius - 9);
+        ctx.restore();
       }
     }
   }
@@ -330,26 +385,62 @@ class Renderer {
     const ctx = this.ctx;
     for (const ball of this.game.balls.balls) {
       const p = ball.body.position;
+      const mirror = !!ball.isMirror;
 
-      const fill = ball.hasWarped ? '#9b7bc4' : '#e8e2d6';
-      const stroke = ball.hasWarped ? '#5a3d7a' : '#2a2622';
+      ctx.save();
+      if (mirror) ctx.globalAlpha = 0.55;
+
+      const fill = mirror
+        ? 'rgba(64, 196, 210, 0.85)'
+        : ball.isGlass
+          ? 'rgba(180, 220, 235, 0.42)'
+          : ball.hasWarped
+            ? '#9b7bc4'
+            : '#e8e2d6';
+      const stroke = mirror
+        ? '#1a6b75'
+        : ball.isGlass
+          ? 'rgba(90, 140, 170, 0.85)'
+          : ball.hasWarped
+            ? '#5a3d7a'
+            : '#2a2622';
       this.sketchCircleFill(p.x, p.y, CONFIG.ballRadius, fill, ball.id + 17, 0.3, 2.0);
       this.sketchCircleStroke(p.x, p.y, CONFIG.ballRadius, stroke, ball.id);
+
+      if (ball.isGlass && !mirror) {
+        ctx.beginPath();
+        ctx.arc(p.x - 2.5, p.y - 2.5, CONFIG.ballRadius * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fill();
+      }
 
       if (ball.spawnFlash > 0) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, CONFIG.ballRadius + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = ball.hasWarped ? 'rgba(107, 79, 154, 0.55)' : 'rgba(47, 93, 140, 0.5)';
+        ctx.strokeStyle = mirror
+          ? 'rgba(64, 196, 210, 0.7)'
+          : ball.isGlass
+            ? 'rgba(90, 160, 190, 0.65)'
+            : ball.hasWarped
+              ? 'rgba(107, 79, 154, 0.55)'
+              : 'rgba(47, 93, 140, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
 
       const label = BallManager.labelFor(ball.score);
-      ctx.fillStyle = ball.hasWarped ? '#3d2a52' : '#2a2622';
+      ctx.fillStyle = mirror
+        ? '#0d3d44'
+        : ball.isGlass
+          ? '#2a4a58'
+          : ball.hasWarped
+            ? '#3d2a52'
+            : '#2a2622';
       ctx.font = `bold ${label.size + 2}px Gaegu, cursive`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(label.text, p.x, p.y + 0.5);
+      ctx.restore();
     }
   }
 
