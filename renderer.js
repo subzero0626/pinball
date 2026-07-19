@@ -411,25 +411,32 @@ class Renderer {
 
       const fill = mirror
         ? 'rgba(64, 196, 210, 0.85)'
-        : ball.isGlass
-          ? 'rgba(180, 220, 235, 0.42)'
-          : ball.hasWarped
-            ? '#9b7bc4'
-            : '#e8e2d6';
+        : ball.isGlass && (ball.hasWarped || ball.glassPurple)
+          ? 'rgba(175, 145, 220, 0.45)'
+          : ball.isGlass
+            ? 'rgba(180, 220, 235, 0.42)'
+            : ball.hasWarped
+              ? '#9b7bc4'
+              : '#e8e2d6';
       const stroke = mirror
         ? '#1a6b75'
-        : ball.isGlass
-          ? 'rgba(90, 140, 170, 0.85)'
-          : ball.hasWarped
-            ? '#5a3d7a'
-            : '#2a2622';
+        : ball.isGlass && (ball.hasWarped || ball.glassPurple)
+          ? 'rgba(110, 70, 160, 0.9)'
+          : ball.isGlass
+            ? 'rgba(90, 140, 170, 0.85)'
+            : ball.hasWarped
+              ? '#5a3d7a'
+              : '#2a2622';
       this.sketchCircleFill(p.x, p.y, CONFIG.ballRadius, fill, ball.id + 17, 0.3, 2.0);
       this.sketchCircleStroke(p.x, p.y, CONFIG.ballRadius, stroke, ball.id);
 
       if (ball.isGlass && !mirror) {
         ctx.beginPath();
         ctx.arc(p.x - 2.5, p.y - 2.5, CONFIG.ballRadius * 0.35, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fillStyle =
+          ball.hasWarped || ball.glassPurple
+            ? 'rgba(235, 220, 255, 0.6)'
+            : 'rgba(255, 255, 255, 0.55)';
         ctx.fill();
       }
 
@@ -438,11 +445,13 @@ class Renderer {
         ctx.arc(p.x, p.y, CONFIG.ballRadius + 3, 0, Math.PI * 2);
         ctx.strokeStyle = mirror
           ? 'rgba(64, 196, 210, 0.7)'
-          : ball.isGlass
-            ? 'rgba(90, 160, 190, 0.65)'
-            : ball.hasWarped
-              ? 'rgba(107, 79, 154, 0.55)'
-              : 'rgba(47, 93, 140, 0.5)';
+          : ball.isGlass && (ball.hasWarped || ball.glassPurple)
+            ? 'rgba(140, 100, 200, 0.7)'
+            : ball.isGlass
+              ? 'rgba(90, 160, 190, 0.65)'
+              : ball.hasWarped
+                ? 'rgba(107, 79, 154, 0.55)'
+                : 'rgba(47, 93, 140, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
@@ -450,11 +459,13 @@ class Renderer {
       const label = BallManager.labelFor(ball.score);
       ctx.fillStyle = mirror
         ? '#0d3d44'
-        : ball.isGlass
-          ? '#2a4a58'
-          : ball.hasWarped
-            ? '#3d2a52'
-            : '#2a2622';
+        : ball.isGlass && (ball.hasWarped || ball.glassPurple)
+          ? '#3a2460'
+          : ball.isGlass
+            ? '#2a4a58'
+            : ball.hasWarped
+              ? '#3d2a52'
+              : '#2a2622';
       ctx.font = `bold ${label.size + 2}px Gaegu, cursive`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

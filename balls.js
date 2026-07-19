@@ -52,6 +52,7 @@ class BallManager {
       isClone: opts.isClone || false,
       isMirror: opts.isMirror || false,
       isGlass: opts.isGlass || false,
+      glassPurple: opts.glassPurple || false,
       swampDepth: opts.swampDepth || 0,
       activeSensors: new Set(opts.activeSensors || []),
       stuckContacts: new Set(),
@@ -127,6 +128,7 @@ class BallManager {
           isClone: true,
           isMirror: ball.isMirror || false,
           isGlass: ball.isGlass || false,
+          glassPurple: ball.glassPurple || false,
           swampDepth: ball.swampDepth || 0,
           activeSensors: ball.activeSensors,
           lastDirX: ball.lastDirX || 0,
@@ -167,6 +169,7 @@ class BallManager {
     Matter.Body.setAngularVelocity(ball.body, 0);
 
     ball.hasWarped = true;
+    if (ball.isGlass) ball.glassPurple = true;
     // 특수 막대만 재통과 가능. 스프링 사용 기록(usedSpringIds)은 유지
     // (워프한 공도 아직 안 쓴 스프링은 발사됨)
     ball.activeSensors.clear();
@@ -203,6 +206,7 @@ class BallManager {
     Matter.Body.setPosition(ball.body, { x: to.x, y: to.y });
     Matter.Body.setVelocity(ball.body, { x: 0, y: CONFIG.warpExitSpeed });
     Matter.Body.setAngularVelocity(ball.body, 0);
+    if (ball.isGlass) ball.glassPurple = true;
     ball.activeSensors.clear();
 
     this.game.addRing(from.x, from.y, BAR_TYPES.chaos_warp.glow);
