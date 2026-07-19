@@ -46,6 +46,8 @@ class BallManager {
       spawnFlash: opts.spawnFlash !== undefined ? opts.spawnFlash : (CONFIG.spawnFlashMs || 200),
       preVx: 0,
       preVy: 0,
+      preX: x,
+      preY: y,
     };
 
     body.gameBall = ball;

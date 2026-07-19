@@ -495,10 +495,13 @@ class Game {
         }
 
         // 특수 막대 — 관통하며 효과만 발동
+        // 공이 이전 프레임에 막대보다 완전히 위에 있었고, 아래로 떨어질 때만
         if (bar && BAR_TYPES[bar.type].sensor) {
           if (ball.activeSensors.has(bar.id)) continue;
+          const fallVy = ball.preVy != null ? ball.preVy : ballBody.velocity.y;
+          if (fallVy <= 0) continue;
+          if (!this.ballWasFullyAboveBar(ball, bar)) continue;
           ball.activeSensors.add(bar.id);
-          if (ball.body.velocity.y <= 0) continue;
           this.pendingEffects.push({ ballId: ball.id, barId: bar.id });
           continue;
         }
@@ -570,6 +573,27 @@ class Game {
         }
       }
     });
+  }
+
+  /**
+   * 특수 막대 발동 조건 — 직전 위치에서 공 전체가 막대보다 위에 있었는지
+   * (y↓ 좌표: 공의 맨 아래 ≤ 막대 AABB 맨 위)
+   */
+  ballWasFullyAboveBar(ball, bar) {
+    if (!ball || !bar) return false;
+    const py = ball.preY != null ? ball.preY : ball.body.position.y;
+    const ballBottom = py + CONFIG.ballRadius;
+    return ballBottom <= this.barWorldTopY(bar) + 0.01;
+  }
+
+  /** 막대 사각형의 월드 좌표 상단(가장 작은 y) */
+  barWorldTopY(bar) {
+    const len = this.bars.lengthOf(bar);
+    const ang = (this.bars.physicsAngleDeg(bar) * Math.PI) / 180;
+    const hw = len / 2;
+    const hh = CONFIG.barThickness / 2;
+    const extY = hw * Math.abs(Math.sin(ang)) + hh * Math.abs(Math.cos(ang));
+    return bar.y - extY;
   }
 
   /**
@@ -1725,6 +1749,8 @@ class Game {
     for (const ball of this.balls.balls) {
       ball.preVx = ball.body.velocity.x;
       ball.preVy = ball.body.velocity.y;
+      ball.preX = ball.body.position.x;
+      ball.preY = ball.body.position.y;
       if (Math.abs(ball.preVx) >= CONFIG.lastDirMinSpeed) {
         ball.lastDirX = Math.sign(ball.preVx);
       }
