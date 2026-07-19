@@ -93,7 +93,7 @@ const CONFIG = {
     multiplyFactor: 2.3,
     passNudgeMinDeg: 3,
     passNudgeMaxDeg: 5,
-    duplicateTripleChance: 0.2,
+    duplicateTripleChance: 0.15,
     pegScoreMult: 1.1,
     warpScoreMult: 1.5,
     scoreBarBase: 3,
@@ -181,7 +181,7 @@ const EFFECT_TYPES = [
   {
     id: 'duplicate_triple',
     label: '삼라분신패',
-    desc: '복제 막대가 20% 확률로 공을 3개로 만듭니다.',
+    desc: '복제 막대가 15% 확률로 공을 3개로 만듭니다.',
     icon: 'users',
   },
   {
