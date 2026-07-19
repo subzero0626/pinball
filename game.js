@@ -346,8 +346,7 @@ class Game {
       x: pos.x,
       y: pos.y,
       angleDeg: 270, // 기본: 위쪽 (y↓ 좌표)
-      spent: false,           // true면 일반 막대 물리
-      pendingSolidify: false, // 발사 후 공이 빠져나가면 spent 전환
+      spent: false,  // false: 다음 충돌에서 발사 / true: 일반 막대
       body: null,
     };
     spring.body = this.makeSpringBody(spring);
@@ -362,12 +361,11 @@ class Game {
   makeSpringBody(spring) {
     const L = CONFIG.barLength;
     const T = CONFIG.barThickness;
-    // 막대 장축은 발사 방향에 수직
+    // 막대 장축은 발사 방향에 수직 — 처음부터 고체(통과 불가)
     const barAngle = ((spring.angleDeg + 90) * Math.PI) / 180;
-    const solid = !!spring.spent;
     const body = Matter.Bodies.rectangle(spring.x, spring.y, L, T, {
       isStatic: true,
-      isSensor: !solid,
+      isSensor: false,
       restitution: CONFIG.restitution,
       friction: CONFIG.friction,
       frictionStatic: CONFIG.frictionStatic,
@@ -376,19 +374,6 @@ class Game {
     });
     body.gameSpring = spring;
     return body;
-  }
-
-  /** 한 번 발사 후 일반 막대처럼 물리 바디로 전환 (공이 나간 뒤 호출) */
-  solidifySpring(spring) {
-    if (!spring || spring.spent) return;
-    spring.spent = true;
-    spring.pendingSolidify = false;
-    if (spring.body) {
-      Matter.Composite.remove(this.world, spring.body);
-      spring.body = null;
-    }
-    spring.body = this.makeSpringBody(spring);
-    Matter.Composite.add(this.world, spring.body);
   }
 
   /** 스프링 막대 물리 각도(도) — 장축 기준, 일반 막대와 동일 좌표계 */
@@ -466,50 +451,46 @@ class Game {
         const bar = other.gameBar || null;
         const spring = other.gameSpring || null;
 
-        // 맵 스프링 — 미사용: 1회 발사 / 사용 후: 일반 막대 충돌
-        // (워프한 공도 미사용 스프링은 발사됨. spent만 워프해도 유지)
+        // 맵 스프링 — 고체 막대. 미사용 시 1회 발사, 이후 일반 막대 충돌
         if (spring) {
-          if (spring.spent) {
-            const obstacleKey = `spring:${spring.id}`;
-            if (this.hasEffect('normal_proc')) {
-              this.tryContactScoreMult(ball, obstacleKey, () => {
-                if (Math.random() < CONFIG.effectBalance.normalProcChance) {
-                  this.balls.multiplyScore(ball, CONFIG.effectBalance.normalProcMult);
-                }
-              });
-            }
-            if (!this.usedDeflectKeys.has(obstacleKey)) {
-              this.pendingDeflects.push({
-                ballId: ball.id,
-                obstacleKey,
-                otherX: other.position.x,
-                otherY: other.position.y,
-                isPeg: false,
-                barAngleDeg: this.springBarAngleDeg(spring),
-                preVx: ballBody.velocity.x,
-                preVy: ballBody.velocity.y,
-              });
-            }
-            if (this.springBarAngleDeg(spring) === 0) {
-              const preferX =
-                Math.abs(ballBody.velocity.x) > CONFIG.lastDirMinSpeed
-                  ? ballBody.velocity.x
-                  : (ball.lastDirX || 0);
-              this.pendingFlatRolls.push({ ballId: ball.id, preferX });
-            }
+          if (!spring.spent) {
+            this.pendingSpringBoosts.push({
+              ballId: ball.id,
+              springId: spring.id,
+              preVx: ballBody.velocity.x,
+              preVy: ballBody.velocity.y,
+              angleDeg: spring.angleDeg,
+            });
             continue;
           }
 
-          // 이미 발사 예약·전환 대기면 재발사 없음
-          if (spring.pendingSolidify) continue;
-
-          this.pendingSpringBoosts.push({
-            ballId: ball.id,
-            springId: spring.id,
-            preVx: ballBody.velocity.x,
-            preVy: ballBody.velocity.y,
-            angleDeg: spring.angleDeg,
-          });
+          const obstacleKey = `spring:${spring.id}`;
+          if (this.hasEffect('normal_proc')) {
+            this.tryContactScoreMult(ball, obstacleKey, () => {
+              if (Math.random() < CONFIG.effectBalance.normalProcChance) {
+                this.balls.multiplyScore(ball, CONFIG.effectBalance.normalProcMult);
+              }
+            });
+          }
+          if (!this.usedDeflectKeys.has(obstacleKey)) {
+            this.pendingDeflects.push({
+              ballId: ball.id,
+              obstacleKey,
+              otherX: other.position.x,
+              otherY: other.position.y,
+              isPeg: false,
+              barAngleDeg: this.springBarAngleDeg(spring),
+              preVx: ballBody.velocity.x,
+              preVy: ballBody.velocity.y,
+            });
+          }
+          if (this.springBarAngleDeg(spring) === 0) {
+            const preferX =
+              Math.abs(ballBody.velocity.x) > CONFIG.lastDirMinSpeed
+                ? ballBody.velocity.x
+                : (ball.lastDirX || 0);
+            this.pendingFlatRolls.push({ ballId: ball.id, preferX });
+          }
           continue;
         }
 
@@ -581,10 +562,6 @@ class Game {
 
         if (bar && BAR_TYPES[bar.type].sensor) {
           ball.activeSensors.delete(bar.id);
-        }
-        // 발사 후 공이 스프링에서 벗어나면 그때 일반 막대로 전환 (겹친 채 고체화하면 발사가 막힘)
-        if (spring && spring.pendingSolidify) {
-          this.solidifySpring(spring);
         }
         if (ball.stuckContacts) {
           if (other.gamePeg) ball.stuckContacts.delete(`peg:${other.gamePeg.id}`);
@@ -1209,7 +1186,7 @@ class Game {
     return hit.length;
   }
 
-  /** 스프링 부스트 — 스프링당 1회 발사 후(공이 나간 뒤) 일반 막대로 전환 */
+  /** 스프링 부스트 — 스프링당 1회 발사 후 spent(이후 일반 막대 튕김). 워프해도 spent 유지 */
   processPendingSpringBoosts() {
     if (this.pendingSpringBoosts.length === 0) return;
     const queue = this.pendingSpringBoosts;
@@ -1220,20 +1197,19 @@ class Game {
     const now = performance.now();
 
     for (const item of queue) {
-      const key = item.springId;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
       const spring = this.springs.find((s) => s.id === item.springId);
-      if (!spring || spring.spent || spring.pendingSolidify) continue;
+      if (!spring || spring.spent) continue;
+      if (seen.has(spring.id)) continue;
 
       const ball = this.balls.balls.find((b) => b.id === item.ballId);
       if (!ball || !ball.body) continue;
 
+      seen.add(spring.id);
+      spring.spent = true;
+
       const recorded = Math.hypot(item.preVx, item.preVy);
-      // 입사 속력 기준(최소 launchSpeed 보장). 워프 직후처럼 느려도 튕김
       const baseSpeed = Math.max(
-        Math.min(recorded, CONFIG.maxBallSpeed),
+        Math.min(recorded > 0.01 ? recorded : CONFIG.launchSpeed, CONFIG.maxBallSpeed),
         CONFIG.launchSpeed || 1.2
       );
 
@@ -1244,24 +1220,11 @@ class Game {
         y: Math.sin(rad) * outSpeed,
       });
       ball.springBoostUntil = now + 450;
-      // 즉시 고체화하지 않음 — 공이 센서에서 나간 뒤 solidify (collisionEnd)
-      spring.pendingSolidify = true;
-      spring.solidifyAfter = now + 500;
       this.addRing(
         ball.body.position.x,
         ball.body.position.y,
         '#c45c2a'
       );
-    }
-  }
-
-  /** collisionEnd 누락 대비 — 잠시 뒤 강제 일반 막대 전환 */
-  flushPendingSpringSolidify() {
-    const now = performance.now();
-    for (const spring of this.springs) {
-      if (spring.pendingSolidify && spring.solidifyAfter && now >= spring.solidifyAfter) {
-        this.solidifySpring(spring);
-      }
     }
   }
 
@@ -1773,7 +1736,6 @@ class Game {
     this.processPendingFlatRolls();
     this.processPendingPegJitters();
     this.processPendingSpringBoosts();
-    this.flushPendingSpringSolidify();
     this.balls.clampSpeeds();
     this.checkStuckBalls();
 
