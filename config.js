@@ -331,7 +331,7 @@ const EFFECT_TYPES = [
   {
     id: 'risky_start',
     label: '유리 성배',
-    desc: '시작 점수가 4점이 됩니다.\n대신 특수 막대를 지날 때 4% 확률로 공이 파괴됩니다.',
+    desc: '시작 점수에 +4가 추가됩니다.\n대신 특수 막대를 지날 때 4% 확률로 공이 파괴됩니다.',
     icon: 'exclamationTriangle',
   },
   {

@@ -177,10 +177,11 @@ class Game {
   }
 
   ballStartScore() {
+    let score = 1;
     if (this.hasEffect('risky_start')) {
-      return CONFIG.effectBalance.startScoreFlat || 4;
+      score += CONFIG.effectBalance.startScoreFlat || 4;
     }
-    return 1;
+    return score;
   }
 
   isMirrorDropActive() {

@@ -270,6 +270,8 @@ class Renderer {
       if (this.game.phase === 'edit' && this.game.isPegLocked(peg)) {
         ctx.save();
         ctx.translate(peg.x, peg.y);
+        const s = 1.35;
+        ctx.scale(s, s);
         const red = '#c45c5c';
         // 고리
         ctx.beginPath();

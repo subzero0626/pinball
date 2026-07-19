@@ -447,7 +447,8 @@ class UI {
       if (!offer) {
         btn.className = 'shop-offer is-empty';
         btn.disabled = true;
-        btn.innerHTML = '<span class="shop-offer-empty">—</span>';
+        btn.innerHTML = '';
+        btn.setAttribute('aria-label', '빈 칸');
         box.appendChild(btn);
         continue;
       }
