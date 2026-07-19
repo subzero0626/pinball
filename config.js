@@ -104,10 +104,10 @@ const CONFIG = {
       { price: 10, w: 60 },
       { price: 11, w: 20 },
     ],
-    /** 상점 막대 가격 분포: 3 / 4 */
+    /** 상점 막대 가격 분포: 4 / 5 */
     barPriceWeights: [
-      { price: 3, w: 30 },
-      { price: 4, w: 70 },
+      { price: 4, w: 40 },
+      { price: 5, w: 60 },
     ],
   },
 

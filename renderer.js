@@ -270,14 +270,14 @@ class Renderer {
       if (this.game.phase === 'edit' && this.game.isPegLocked(peg)) {
         ctx.save();
         ctx.translate(peg.x, peg.y);
-        const s = 1.35;
+        const s = 1.55;
         ctx.scale(s, s);
-        const red = '#c45c5c';
+        const red = '#9a2e2e';
         // 고리
         ctx.beginPath();
         ctx.arc(0, -3.2, 4.2, Math.PI * 0.95, Math.PI * 0.05, false);
         ctx.strokeStyle = red;
-        ctx.lineWidth = 2.6;
+        ctx.lineWidth = 3.1;
         ctx.lineCap = 'round';
         ctx.stroke();
         // 몸통 (단색)
